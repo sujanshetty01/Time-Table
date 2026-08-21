@@ -82,7 +82,7 @@ const WEEK = [
 const KIND_COLOR = { learn: "#5b8cff", lab: "#22d3ee", project: "#8b5cf6", review: "#34d399" };
 
 /* ---- 12-month roadmap, grouped into 4 quarters ---- */
-const PHASES = [
+let PHASES = [
   {
     id: "p1",
     months: "Months 1–3",
@@ -314,7 +314,7 @@ const PHASES = [
   },
 ];
 
-const MILESTONES = [
+let MILESTONES = [
   {
     time: "3 Months", sub: "Foundation", icon: "🌱", role: "Azure Aware",
     title: "Fundamentals & governance locked in",
@@ -447,7 +447,7 @@ const MISTAKES = [
   "Using old exam courses instead of current Microsoft study guides",
 ];
 
-const RESOURCES = [
+let RESOURCES = [
   { ico: "📚", title: "Microsoft Learn", items: ["AZ-104 & AZ-305 study guides", "Official Learn paths (free)", "Practice assessments", "Exam sandbox"] },
   { ico: "🏗️", title: "Architecture", items: ["Azure Architecture Center", "Well-Architected Framework", "Cloud Adoption Framework", "Reference architectures"] },
   { ico: "🧱", title: "IaC & DevOps", items: ["Bicep documentation", "Azure Verified Modules", "GitHub Actions", "Azure Pipelines"] },
@@ -456,18 +456,26 @@ const RESOURCES = [
   { ico: "🛠️", title: "Tools", items: ["VS Code + Bicep extension", "Azure CLI & PowerShell", "Azure Cloud Shell", "Git & GitHub"] },
 ];
 
-/* Flatten roadmap into trackable tasks per quarter (from monthly plans) */
-const TRACKER = PHASES.map((p) => ({
-  id: p.id,
-  title: `${p.title} · ${p.months}`,
-  tasks: p.plan
-    .flatMap((m) => [
-      `📘 Study — Month ${m.n}: ${m.title}`,
-      ...m.hands,
-      `📦 ${m.deliverable}`,
-    ])
-    .map((label, i) => ({ id: `${p.id}-${i}`, label })),
-}));
+/* Build trackable tasks per quarter from monthly plans (optionally namespaced by goal). */
+function buildTracker(phases, prefix) {
+  prefix = prefix || "";
+  return phases.map((p) => ({
+    id: p.id,
+    title: `${p.title} · ${p.months}`,
+    tasks: p.plan
+      .flatMap((m) => [
+        `📘 Study — Month ${m.n}: ${m.title}`,
+        ...m.hands,
+        `📦 ${m.deliverable}`,
+      ])
+      .map((label, i) => ({ id: `${prefix}${p.id}-${i}`, label })),
+  }));
+}
+
+let TRACKER = buildTracker(PHASES, "");
+
+// Snapshot the Azure Cloud Architect roadmap so it can be restored from the registry.
+const ROADMAP_CLOUD_ARCHITECT_AZURE = { phases: PHASES, milestones: MILESTONES, resources: RESOURCES };
 
 /* Gamification */
 const XP_PER_TASK = 10;

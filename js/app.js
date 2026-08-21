@@ -69,7 +69,7 @@
     reset() { applyResetState(); },
   };
 
-  const totalTasks = TRACKER.reduce((n, p) => n + p.tasks.length, 0);
+  function totalTasks() { return TRACKER.reduce((n, p) => n + p.tasks.length, 0); }
 
   /* ---------------- Profile + dynamic schedule ---------------- */
   const PROFILE_CACHE = "cloudpath.profile.v1";
@@ -121,6 +121,7 @@
       profile = p || null;
       try { localStorage.setItem(PROFILE_CACHE, JSON.stringify(profile)); } catch {}
       SCHEDULE = buildSchedule(...learnWindow());
+      setGoalRoadmap();
       renderDaily();
       applyGreeting();
       if (typeof tick === "function") tick();
@@ -131,6 +132,21 @@
     get() { return profile; },
     has() { return !!(profile && profile.onboardedAt); },
   };
+
+  // Switch the active roadmap to match the profile's goal, then re-render.
+  function setGoalRoadmap() {
+    if (typeof setActiveRoadmap !== "function") return;
+    const key = (profile && profile.careerGoalKey) || "cloud-architect";
+    const cloud = (profile && profile.cloud) || "Azure";
+    setActiveRoadmap(key, cloud);
+    if (document.getElementById("phaseTabs")) {
+      renderRoadmap();
+      renderMilestones();
+      renderResources();
+      renderTrackerFilter();
+      renderTracker();
+    }
+  }
 
   function applyGreeting() {
     if (!profile || !profile.onboardedAt) return; // keep default hero until onboarded
@@ -396,9 +412,12 @@
   }
 
   function computeState() {
-    const doneCount = done.size;
+    // Count only tasks belonging to the active goal's roadmap.
+    const activeIds = new Set(TRACKER.flatMap((p) => p.tasks.map((t) => t.id)));
+    const total = TRACKER.reduce((n, p) => n + p.tasks.length, 0);
+    const doneCount = [...done].filter((id) => activeIds.has(id)).length;
     const xp = doneCount * XP_PER_TASK;
-    const pct = totalTasks ? Math.round((doneCount / totalTasks) * 100) : 0;
+    const pct = total ? Math.round((doneCount / total) * 100) : 0;
     const phase = {};
     TRACKER.forEach((p) => {
       const c = p.tasks.filter((t) => done.has(t.id)).length;
@@ -581,7 +600,7 @@
     });
 
     const summary = $("#trackerSummary");
-    if (summary) summary.innerHTML = `<strong>${completed}</strong> / ${totalTasks} tasks · <strong>${xp}</strong> XP`;
+    if (summary) summary.innerHTML = `<strong>${completed}</strong> / ${totalTasks()} tasks · <strong>${xp}</strong> XP`;
 
     // Badges
     let unlocked = 0, newlyUnlocked = [];
@@ -830,6 +849,10 @@
   document.addEventListener("DOMContentLoaded", () => {
     renderDaily();
     renderWeek();
+    // Cached profile may select a non-default goal — set its roadmap first.
+    if (profile && profile.careerGoalKey && typeof setActiveRoadmap === "function") {
+      setActiveRoadmap(profile.careerGoalKey, profile.cloud);
+    }
     renderRoadmap();
     renderMilestones();
     renderMethod();
