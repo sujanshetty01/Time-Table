@@ -34,6 +34,30 @@
   let currentUser = null;
   let unsub = null;
 
+  // Role-based access. Bootstrap admin via email allowlist (matches Firestore rules).
+  const ADMIN_EMAILS = ["sujankabaddi123@gmail.com"];
+  let currentRole = "user";
+  function computeIsAdmin() { return currentRole === "admin" || (currentUser && ADMIN_EMAILS.includes(currentUser.email)); }
+  window.PathAuth = {
+    uid: () => currentUser && currentUser.uid,
+    email: () => currentUser && currentUser.email,
+    role: () => (computeIsAdmin() ? "admin" : currentRole),
+    isAdmin: () => computeIsAdmin(),
+    isMentor: () => currentRole === "mentor" || computeIsAdmin(),
+    async listUsers() {
+      const snap = await db.collection("users").get();
+      return snap.docs.map((d) => ({ uid: d.id, ...d.data() }));
+    },
+    setUserRole(uid, role) {
+      return db.collection("users").doc(uid).set({ role }, { merge: true });
+    },
+    broadcast(title, body) {
+      return db.collection("broadcasts").add({
+        title, body, at: firebase.firestore.FieldValue.serverTimestamp(), by: currentUser && currentUser.email,
+      });
+    },
+  };
+
   // Gate the app immediately until auth state resolves.
   showOverlay();
 
@@ -72,6 +96,8 @@
           return;
         }
         const data = snap.data();
+        currentRole = data.role || "user";
+        if (window.AdminPanel) window.AdminPanel.refreshAccess();
         const progress = data.progress || null;
         if (JSON.stringify(progress) !== JSON.stringify(window.CloudBridge.localData())) {
           window.CloudBridge.applyRemote(progress);
@@ -94,11 +120,14 @@
       setChip(user.email);
       hideOverlay();
       watch(user.uid);
+      if (window.AdminPanel) window.AdminPanel.refreshAccess();
     } else {
       if (unsub) { unsub(); unsub = null; }
+      currentRole = "user";
       window.CloudBridge.applyRemote(null); // clear UI for the next user
       if (window.PathProfile) window.PathProfile.apply(null); // clear personalization
       if (window.Onboarding) window.Onboarding.close();
+      if (window.AdminPanel) window.AdminPanel.refreshAccess();
       setChip(null);
       showOverlay();
     }

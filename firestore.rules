@@ -1,11 +1,43 @@
 rules_version = '2';
 
-// Each user can read and write ONLY their own document at /users/{uid}.
-// No other access is allowed.
+// Role-based access: users own their doc; mentors/admins can read all;
+// admins can change a user's role. Bootstrap admin via email allowlist.
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function myDoc() { return /databases/$(database)/documents/users/$(request.auth.uid); }
+    function myRole() {
+      return signedIn() && exists(myDoc()) ? get(myDoc()).data.role : 'user';
+    }
+    function isAdmin() {
+      return signedIn() && (
+        request.auth.token.email == 'sujankabaddi123@gmail.com' ||
+        myRole() == 'admin'
+      );
+    }
+    function isMentor() {
+      return signedIn() && (myRole() == 'mentor' || isAdmin());
+    }
+
     match /users/{uid} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+      // Owner reads own doc; mentors and admins can read all.
+      allow read: if signedIn() && (request.auth.uid == uid || isMentor());
+      // Owner can create/update own doc but may NOT set or change the role field.
+      allow create: if signedIn() && request.auth.uid == uid
+        && !('role' in request.resource.data);
+      allow update: if signedIn() && request.auth.uid == uid
+        && (!('role' in request.resource.data) || request.resource.data.role == resource.data.role);
+      // Admins may change ONLY the role field of any user.
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role']);
+      allow delete: if false;
+    }
+
+    // Admin broadcasts: everyone signed-in can read; only admins write.
+    match /broadcasts/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
     }
   }
 }
