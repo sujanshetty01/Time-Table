@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Sujan's personalized 12-month roadmap from Azure fundamentals to Azure Solutions Architect Expert." />
+  <title>Azure Architect Roadmap — Sujan</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>☁️</text></svg>" />
+</head>
+<body>
+  <!-- Progress rail -->
+  <div class="scroll-progress" id="scrollProgress"></div>
+
+  <!-- Sidebar navigation -->
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <span class="brand-logo">☁️</span>
+      <div class="brand-text">
+        <strong>Azure Path</strong>
+        <small>Network → Architect</small>
+      </div>
+    </div>
+    <div class="side-clock" id="sideClock">
+      <span class="sc-dot" id="scDot"></span>
+      <span class="sc-time" id="scTime">--:--</span>
+      <span class="sc-label" id="scLabel">—</span>
+    </div>
+    <nav class="nav">
+      <a href="#overview" class="nav-link active"><span class="nav-ico">◉</span> Overview</a>
+      <a href="#daily" class="nav-link"><span class="nav-ico">◷</span> Daily Timetable</a>
+      <a href="#weekly" class="nav-link"><span class="nav-ico">▤</span> Weekly Plan</a>
+      <a href="#roadmap" class="nav-link"><span class="nav-ico">◆</span> 12-Month Roadmap</a>
+      <a href="#milestones" class="nav-link"><span class="nav-ico">⚑</span> Milestones</a>
+      <a href="#method" class="nav-link"><span class="nav-ico">◑</span> Learning Method</a>
+      <a href="#skills" class="nav-link"><span class="nav-ico">✦</span> Skills Checklist</a>
+      <a href="#tracker" class="nav-link"><span class="nav-ico">✓</span> Progress Tracker</a>
+      <a href="#pitfalls" class="nav-link"><span class="nav-ico">⚠</span> Pitfalls</a>
+      <a href="#resources" class="nav-link"><span class="nav-ico">❖</span> Resources</a>
+    </nav>
+    <div class="sidebar-footer">
+      <button class="theme-toggle" id="themeToggle" title="Toggle theme">
+        <span class="theme-ico">🌙</span>
+      </button>
+      <button class="theme-toggle" id="notifToggle" title="Enable reminders">
+        <span class="notif-ico">🔔</span>
+      </button>
+      <button class="reset-btn" id="resetBtn" title="Reset all progress">Reset</button>
+    </div>
+  </aside>
+
+  <button class="menu-btn" id="menuBtn" aria-label="Menu">☰</button>
+
+  <main class="main">
+    <!-- ===================== OVERVIEW / HERO ===================== -->
+    <section id="overview" class="section hero">
+      <div class="hero-badge">Azure Solutions Architect Journey</div>
+      <h1 class="hero-title">
+        Own <span class="grad-1">Azure</span>.<br />
+        Become the <span class="grad-2">Architect</span>.
+      </h1>
+      <p class="hero-sub">
+        Sujan — this is your 12-month path from Azure fundamentals to a job-ready
+        <strong>Azure Solutions Architect Expert</strong>. Built around your real schedule
+        (<strong>12:00–3:00 PM weekdays</strong>, ~15–18 hrs/week), following the
+        <strong>AZ-900 → AZ-104 → AZ-305</strong> path with hands-on architecture projects.
+      </p>
+
+      <!-- Gamified scoreboard -->
+      <div class="scoreboard" id="scoreboard">
+        <div class="score-ring-wrap">
+          <svg class="score-ring" viewBox="0 0 120 120" aria-hidden="true">
+            <circle class="sr-track" cx="60" cy="60" r="52"></circle>
+            <circle class="sr-fill" id="srFill" cx="60" cy="60" r="52"></circle>
+          </svg>
+          <div class="score-ring-center">
+            <div class="sr-score" id="srScore">0</div>
+            <div class="sr-unit">XP</div>
+          </div>
+        </div>
+        <div class="score-info">
+          <div class="score-rank-row">
+            <span class="score-rank-emoji" id="rankEmoji">🌱</span>
+            <div>
+              <div class="score-rank" id="rankName">Cloud Novice</div>
+              <div class="score-level">Level <span id="levelNum">1</span> · <span id="levelTitle">Getting Started</span></div>
+            </div>
+          </div>
+          <div class="level-bar">
+            <div class="level-bar-fill" id="levelBarFill"></div>
+          </div>
+          <div class="level-meta">
+            <span id="levelXpText">0 / 100 XP to next level</span>
+            <span class="streak-chip" id="streakChip">🔥 <span id="streakNum">0</span>-day streak</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="hero-stats">
+        <div class="stat-card">
+          <div class="stat-num" id="statDays">0</div>
+          <div class="stat-label">Tasks Completed</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num" id="statPct">0%</div>
+          <div class="stat-label">Overall Progress</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num" id="statBadges">0</div>
+          <div class="stat-label">Badges Earned</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num" id="statScore">0</div>
+          <div class="stat-label">Total Score (XP)</div>
+        </div>
+      </div>
+
+      <div class="overall-progress">
+        <div class="op-head">
+          <span>Your journey progress</span>
+          <span id="opPct">0%</span>
+        </div>
+        <div class="op-bar"><div class="op-fill" id="opFill"></div></div>
+      </div>
+
+      <!-- Weekly XP goal -->
+      <div class="weekly-goal" id="weeklyGoal">
+        <div class="wg-head">
+          <div class="wg-title">🎯 This Week's Goal</div>
+          <div class="wg-edit">
+            <label for="wgTarget">Target XP</label>
+            <input type="number" id="wgTarget" min="10" step="10" value="150" />
+          </div>
+        </div>
+        <div class="wg-bar"><div class="wg-fill" id="wgFill"></div></div>
+        <div class="wg-meta">
+          <span id="wgText">0 / 150 XP earned this week</span>
+          <span class="wg-status" id="wgStatus">Keep going 💪</span>
+        </div>
+      </div>
+
+      <!-- Achievement badges -->
+      <div class="badges-panel">
+        <h3 class="badges-title">🏆 Achievements <span class="badges-count" id="badgesCount">0 / 0 unlocked</span></h3>
+        <div class="badges-grid" id="badgesGrid"></div>
+      </div>
+
+      <div class="principles">
+        <div class="principle">
+          <div class="p-ico">🎯</div>
+          <h3>Skills over certs</h3>
+          <p>Certifications are checkpoints, not the goal. Every phase is anchored by hands-on labs and real projects.</p>
+        </div>
+        <div class="principle">
+          <div class="p-ico">🔋</div>
+          <h3>Burnout-proof</h3>
+          <p>Core learning fits your 12–3 PM window. Optional evening blocks are light and capped to keep it sustainable.</p>
+        </div>
+        <div class="principle">
+          <div class="p-ico">📈</div>
+          <h3>Logical progression</h3>
+          <p>Fundamentals → Associate → Cloud Engineer → Architect. Each layer builds on the last, leveraging your networking edge.</p>
+        </div>
+        <div class="principle">
+          <div class="p-ico">🧭</div>
+          <h3>Measurable</h3>
+          <p>Clear milestones at 3, 6, 9, and 12 months so you always know exactly where you stand.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== DAILY TIMETABLE ===================== -->
+    <section id="daily" class="section">
+      <div class="section-head">
+        <h2>Daily Timetable</h2>
+        <p>Your protected 3-hour learning window, engineered for deep focus and retention.</p>
+      </div>
+
+      <!-- Live status banner — syncs with the real clock -->
+      <div class="now-banner" id="nowBanner">
+        <div class="nb-clock">
+          <div class="nb-time" id="nbTime">--:--</div>
+          <div class="nb-date" id="nbDate">—</div>
+        </div>
+        <div class="nb-status">
+          <div class="nb-badge" id="nbBadge">Loading…</div>
+          <div class="nb-msg" id="nbMsg">Checking your schedule…</div>
+          <div class="nb-progress" id="nbProgressWrap" hidden>
+            <div class="nb-progress-bar"><div class="nb-progress-fill" id="nbProgressFill"></div></div>
+            <span class="nb-remaining" id="nbRemaining"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="daily-note">
+        <strong>6:00 AM – 12:00 PM</strong> → Core job responsibilities &nbsp;•&nbsp;
+        <strong>12:00 PM – 3:00 PM</strong> → Azure learning (Learn → Lab → Document → Review) &nbsp;•&nbsp;
+        only use work hours for learning if your manager &amp; policy permit it
+      </div>
+
+      <div class="timeline" id="dailyTimeline"></div>
+
+      <div class="evening-block">
+        <h3>Golden rule <span class="tag tag-soft">50% of your time = hands-on</span></h3>
+        <p>Don't spend the year watching courses. For every Azure service run the full cycle:
+        <strong>Learn → Deploy → Break → Troubleshoot → Automate → Document → Explain</strong>.
+        And always delete unused resources after a lab to protect your budget.</p>
+      </div>
+    </section>
+
+    <!-- ===================== WEEKLY PLAN ===================== -->
+    <section id="weekly" class="section">
+      <div class="section-head">
+        <h2>Weekly Plan</h2>
+        <p>A repeatable rhythm. Themes rotate as you advance through the roadmap phases.</p>
+      </div>
+      <div class="week-grid" id="weekGrid"></div>
+
+      <div class="week-legend">
+        <span><i class="dot dot-learn"></i> Concept &amp; theory</span>
+        <span><i class="dot dot-lab"></i> Hands-on lab</span>
+        <span><i class="dot dot-project"></i> Project work</span>
+        <span><i class="dot dot-review"></i> Review &amp; rest</span>
+      </div>
+    </section>
+
+    <!-- ===================== ROADMAP ===================== -->
+    <section id="roadmap" class="section">
+      <div class="section-head">
+        <h2>Your 12-Month Roadmap</h2>
+        <p>Four quarters, twelve monthly modules — from Azure fundamentals to Solutions Architect Expert. Each month has study, hands-on labs, and a concrete deliverable.</p>
+      </div>
+
+      <div class="phase-tabs" id="phaseTabs"></div>
+      <div class="phase-body" id="phaseBody"></div>
+    </section>
+
+    <!-- ===================== MILESTONES ===================== -->
+    <section id="milestones" class="section">
+      <div class="section-head">
+        <h2>Milestones</h2>
+        <p>Concrete, measurable checkpoints so progress is never a guess.</p>
+      </div>
+      <div class="milestone-track" id="milestoneTrack"></div>
+
+      <div class="evidence-panel">
+        <h3 class="evidence-title">📁 Evidence to produce by month 12</h3>
+        <p class="evidence-sub">Certifications get you interviews — this portfolio proves you can do the work.</p>
+        <div class="evidence-grid" id="evidenceGrid"></div>
+      </div>
+    </section>
+
+    <!-- ===================== LEARNING METHOD ===================== -->
+    <section id="method" class="section">
+      <div class="section-head">
+        <h2>The Learning Method</h2>
+        <p>How you spend your time matters more than how much. Aim for this split every week.</p>
+      </div>
+      <div class="method-wrap">
+        <div class="method-bars" id="methodBars"></div>
+        <div class="method-cycle-card">
+          <h3>Per-service cycle</h3>
+          <p>For every Azure service, run the full loop — don't stop at "Learn".</p>
+          <div class="method-cycle" id="methodCycle"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== SKILLS CHECKLIST ===================== -->
+    <section id="skills" class="section">
+      <div class="section-head">
+        <h2>Industry-Ready Skills Checklist</h2>
+        <p>By month 12 you should be able to demonstrate every competency below.</p>
+      </div>
+      <div class="competency-grid" id="competencyGrid"></div>
+    </section>
+
+    <!-- ===================== TRACKER ===================== -->
+    <section id="tracker" class="section">
+      <div class="section-head">
+        <h2>Progress Tracker</h2>
+        <p>Check off tasks as you complete them — your progress is saved automatically in this browser.</p>
+      </div>
+
+      <div class="tracker-controls">
+        <div class="filter-group" id="trackerFilter"></div>
+        <div class="tracker-summary" id="trackerSummary"></div>
+      </div>
+      <div class="tracker-list" id="trackerList"></div>
+    </section>
+
+    <!-- ===================== PITFALLS ===================== -->
+    <section id="pitfalls" class="section">
+      <div class="section-head">
+        <h2>Common Mistakes to Avoid</h2>
+        <p>Steer clear of these and you'll move faster than most self-taught architects.</p>
+      </div>
+      <div class="mistakes-list" id="mistakesList"></div>
+    </section>
+
+    <!-- ===================== RESOURCES ===================== -->
+    <section id="resources" class="section">
+      <div class="section-head">
+        <h2>Curated Resources</h2>
+        <p>High-signal, mostly free resources to power each phase.</p>
+      </div>
+      <div class="resource-grid" id="resourceGrid"></div>
+    </section>
+
+    <footer class="footer">
+      <p>Built for your journey — stay consistent, ship projects, and think in systems. ☁️</p>
+      <p class="footer-sub">Tip: open this on your work laptop and check in every day at 12:00 PM.</p>
+    </footer>
+  </main>
+
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
