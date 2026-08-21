@@ -71,9 +71,84 @@
 
   const totalTasks = TRACKER.reduce((n, p) => n + p.tasks.length, 0);
 
-  /* ---------------- Renderers ---------------- */
+  /* ---------------- Profile + dynamic schedule ---------------- */
+  const PROFILE_CACHE = "cloudpath.profile.v1";
+  let profile = loadProfileCache();
+
+  function loadProfileCache() {
+    try { return JSON.parse(localStorage.getItem(PROFILE_CACHE)) || null; } catch { return null; }
+  }
+
+  function hmm(mins) {
+    let h = Math.floor(mins / 60) % 24, m = mins % 60;
+    const ampm = h >= 12 ? "PM" : "AM";
+    const h12 = h % 12 || 12;
+    return `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
+  }
+  function shortRange(a, b) { // "12:00–1:00" style without am/pm noise
+    const f = (x) => { const h = Math.floor(x / 60) % 24, m = x % 60; return `${h % 12 || 12}:${String(m).padStart(2, "0")}`; };
+    return `${f(a)}–${f(b)}`;
+  }
+
+  // Build the day's blocks from a learning window using the DAILY templates.
+  function buildSchedule(startMin, endMin) {
+    const total = Math.max(30, endMin - startMin);
+    const ratios = DAILY.map((d) => parseInt(d.dur));      // template minutes as weights
+    const sum = ratios.reduce((a, b) => a + b, 0);
+    let cursor = startMin;
+    return DAILY.map((tpl, i) => {
+      let dur = i === DAILY.length - 1 ? endMin - cursor : Math.round((total * ratios[i]) / sum / 5) * 5;
+      dur = Math.max(10, dur);
+      const s = cursor, e = Math.min(endMin, cursor + dur);
+      cursor = e;
+      return { ...tpl, startMin: s, endMin: e, time: shortRange(s, e), dur: `${e - s} min` };
+    });
+  }
+
+  // Active learning window (from profile, else default noon–3pm).
+  function learnWindow() {
+    if (profile && Number.isFinite(profile.learnStartMin) && Number.isFinite(profile.learnEndMin) && profile.learnEndMin > profile.learnStartMin) {
+      return [profile.learnStartMin, profile.learnEndMin];
+    }
+    return [12 * 60, 15 * 60];
+  }
+
+  let SCHEDULE = buildSchedule(...learnWindow());
+
+  // Bridge used by onboarding.js / auth.js to apply a saved or new profile.
+  window.PathProfile = {
+    apply(p, opts) {
+      profile = p || null;
+      try { localStorage.setItem(PROFILE_CACHE, JSON.stringify(profile)); } catch {}
+      SCHEDULE = buildSchedule(...learnWindow());
+      renderDaily();
+      applyGreeting();
+      if (typeof tick === "function") tick();
+      if (opts && opts.save && window.Cloud && typeof window.Cloud.saveProfile === "function") {
+        window.Cloud.saveProfile(profile);
+      }
+    },
+    get() { return profile; },
+    has() { return !!(profile && profile.onboardedAt); },
+  };
+
+  function applyGreeting() {
+    if (!profile || !profile.onboardedAt) return; // keep default hero until onboarded
+    const goal = profile.careerGoalLabel || "Cloud Architect";
+    const name = profile.fullName ? profile.fullName.split(" ")[0] : "there";
+    const badge = $(".hero-badge");
+    if (badge) badge.textContent = `${goal} Journey`;
+    const sub = $(".hero-sub");
+    if (sub) {
+      const [ws, we] = learnWindow();
+      sub.innerHTML = `Hi <strong>${name}</strong> — your personalized path to <strong>${goal}</strong>. ` +
+        `Core learning window: <strong>${hmm(ws)}–${hmm(we)}</strong> on weekdays, split into Learn → Lab → Document → Review.`;
+    }
+  }
+
+
   function renderDaily() {
-    $("#dailyTimeline").innerHTML = DAILY.map((d) => `
+    $("#dailyTimeline").innerHTML = SCHEDULE.map((d) => `
       <div class="tl-item" style="--accent-color:${d.color}">
         <div class="tl-time">${d.time}<span class="dur">${d.dur}</span></div>
         <div class="tl-body">
@@ -431,7 +506,7 @@
     if (!notifEnabled || isWeekend || blockIdx == null) { lastNotifBlock = null; return; }
     if (lastNotifBlock === "init") { lastNotifBlock = blockIdx; return; }
     if (blockIdx !== lastNotifBlock) {
-      const block = DAILY[blockIdx];
+      const block = SCHEDULE[blockIdx];
       const opener = blockIdx === 0 ? "🎓 Learning window open! " : "";
       notify(`${opener}${block.title}`, `${block.time} · ${block.desc}`);
       lastNotifBlock = blockIdx;
@@ -583,22 +658,19 @@
     });
   }
 
-  /* ---------------- Live time sync ---------------- */
-  // Parse "H:MM" from the afternoon schedule into minutes-of-day.
-  function toMinutes(str) {
-    const [h, m] = str.trim().split(":").map(Number);
-    const hour = h < 6 ? h + 12 : h; // schedule runs noon–3pm
-    return hour * 60 + m;
+  /* ---------------- Profile / onboarding entry ---------------- */
+  function initProfileButton() {
+    const btn = $("#profileBtn");
+    if (btn) btn.addEventListener("click", () => window.Onboarding && window.Onboarding.open(profile));
+    // Local mode (no Firebase): show onboarding once for first-time users.
+    const cfg = window.FIREBASE_CONFIG || {};
+    const cloudMode = !!cfg.apiKey && !String(cfg.apiKey).includes("YOUR_");
+    if (!cloudMode && (!profile || !profile.onboardedAt) && window.Onboarding) {
+      window.Onboarding.open(null, { first: true });
+    }
   }
 
-  // Precompute start/end minutes for each daily block.
-  const DAILY_RANGES = DAILY.map((d) => {
-    const [start, end] = d.time.split(/[–-]/);
-    return { start: toMinutes(start), end: toMinutes(end) };
-  });
-
-  const WINDOW_START = DAILY_RANGES[0].start;                    // 12:00
-  const WINDOW_END = DAILY_RANGES[DAILY_RANGES.length - 1].end;  // 15:00
+  /* ---------------- Live time sync ---------------- */
   const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
   function fmtClock(date) {
@@ -640,40 +712,44 @@
     let state, label, badgeText, message;
     let activeBlockIdx = null;
 
+    // Dynamic window from the current (profile-driven) schedule.
+    const WS = SCHEDULE[0].startMin;
+    const WE = SCHEDULE[SCHEDULE.length - 1].endMin;
+
     if (isWeekend) {
       state = "off";
       label = "Weekend";
       badgeText = "Rest / Optional";
       message = `It's ${DAY_NAMES[dayIdx] === "Sat" ? "Saturday" : "Sunday"} — rest is productive. Only a light session if you feel fresh. 🌿`;
       hide(progWrap);
-    } else if (mins < WINDOW_START) {
+    } else if (mins < WS) {
       state = mins >= 6 * 60 ? "job" : "off";
       label = state === "job" ? "Work" : "Off";
       badgeText = state === "job" ? "Job Hours" : "Before Work";
-      const untilLearn = WINDOW_START - mins;
+      const untilLearn = WS - mins;
       message = state === "job"
         ? `Focused on job responsibilities. Learning window opens in <strong>${fmtRemaining(untilLearn)}</strong>.`
-        : `Good morning! Your learning window opens at <strong>12:00 PM</strong>.`;
+        : `Good morning! Your learning window opens at <strong>${fmtClock(new Date(0,0,0,Math.floor(WS/60),WS%60))}</strong>.`;
       hide(progWrap);
-    } else if (mins >= WINDOW_START && mins < WINDOW_END) {
+    } else if (mins >= WS && mins < WE) {
       state = "learn";
       label = "Learning";
       // Find the active block
-      const idx = DAILY_RANGES.findIndex((r) => mins >= r.start && mins < r.end);
+      const idx = SCHEDULE.findIndex((r) => mins >= r.startMin && mins < r.endMin);
       activeBlockIdx = idx;
       items.forEach((el, i) => {
         if (i < idx) el.classList.add("now-past");
         else if (i === idx) el.classList.add("now-active");
       });
-      const block = DAILY[idx];
+      const block = SCHEDULE[idx];
       badgeText = "In Session · " + label;
-      const blockEnd = DAILY_RANGES[idx].end;
+      const blockEnd = SCHEDULE[idx].endMin;
       message = `Right now: <strong>${block.title}</strong> — ${fmtRemaining(blockEnd - mins)} left in this block.`;
       // Window progress
-      const pct = Math.round(((mins - WINDOW_START) / (WINDOW_END - WINDOW_START)) * 100);
+      const pct = Math.round(((mins - WS) / (WE - WS)) * 100);
       show(progWrap);
       $("#nbProgressFill").style.width = pct + "%";
-      setText("#nbRemaining", fmtRemaining(WINDOW_END - mins) + " left today");
+      setText("#nbRemaining", fmtRemaining(WE - mins) + " left today");
     } else {
       state = "off";
       label = "Done";
@@ -723,6 +799,7 @@
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => toastEl.classList.remove("show"), 1800);
   }
+  window.__toast = toast; // used by onboarding.js
 
   /* ---------------- Celebration ---------------- */
   let celebrateQueue = [];
@@ -769,5 +846,7 @@
     initClock();
     initWeeklyGoal();
     initNotifications();
+    applyGreeting();
+    initProfileButton();
   });
 })();

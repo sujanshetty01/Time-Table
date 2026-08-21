@@ -50,20 +50,39 @@
         { merge: true }
       ).catch((e) => console.warn("Cloud save failed:", e.message));
     },
+    saveProfile(profile) {
+      if (!currentUser) return;
+      db.collection("users").doc(currentUser.uid).set(
+        { profile, email: currentUser.email, updatedAt: firebase.firestore.FieldValue.serverTimestamp() },
+        { merge: true }
+      ).catch((e) => console.warn("Profile save failed:", e.message));
+    },
   };
 
+  let profileApplied = false;
   function watch(uid) {
     if (unsub) unsub();
+    profileApplied = false;
     unsub = db.collection("users").doc(uid).onSnapshot(
       (snap) => {
         if (!snap.exists) {
           // First login on this account: seed cloud from this device's data.
           window.Cloud.save(window.CloudBridge.localData());
+          if (window.Onboarding) window.Onboarding.open(null, { first: true });
           return;
         }
-        const progress = snap.data().progress || null;
-        if (JSON.stringify(progress) === JSON.stringify(window.CloudBridge.localData())) return;
-        window.CloudBridge.applyRemote(progress);
+        const data = snap.data();
+        const progress = data.progress || null;
+        if (JSON.stringify(progress) !== JSON.stringify(window.CloudBridge.localData())) {
+          window.CloudBridge.applyRemote(progress);
+        }
+        // Profile: apply once from cloud, or trigger onboarding if missing.
+        if (data.profile && window.PathProfile) {
+          window.PathProfile.apply(data.profile, { save: false });
+          profileApplied = true;
+        } else if (!data.profile && !profileApplied && window.Onboarding) {
+          window.Onboarding.open(null, { first: true });
+        }
       },
       (err) => console.warn("Snapshot error:", err.message)
     );
@@ -78,6 +97,8 @@
     } else {
       if (unsub) { unsub(); unsub = null; }
       window.CloudBridge.applyRemote(null); // clear UI for the next user
+      if (window.PathProfile) window.PathProfile.apply(null); // clear personalization
+      if (window.Onboarding) window.Onboarding.close();
       setChip(null);
       showOverlay();
     }
