@@ -7,22 +7,67 @@
 
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
-  const STORAGE_KEY = "cloudpath.progress.v1";
+  const LEGACY_KEY = "cloudpath.progress.v1";
+  const CACHE_KEY = "cloudpath.userdata.v1";
   const THEME_KEY = "cloudpath.theme.v1";
 
-  /* ---------------- State ---------------- */
-  let done = loadProgress();
+  /* ---------------- User progress state (device cache + cloud) ---------------- */
+  const defaultUD = () => ({ done: [], streak: { count: 0, last: null }, log: {}, celebrated: [], weekTarget: 150 });
 
-  function loadProgress() {
+  function normalizeUD(d) {
+    const base = defaultUD();
+    if (!d || typeof d !== "object") return base;
+    return {
+      done: Array.isArray(d.done) ? d.done : base.done,
+      streak: d.streak && typeof d.streak === "object"
+        ? { count: d.streak.count | 0, last: d.streak.last ?? null } : base.streak,
+      log: d.log && typeof d.log === "object" ? d.log : base.log,
+      celebrated: Array.isArray(d.celebrated) ? d.celebrated : base.celebrated,
+      weekTarget: Number.isFinite(d.weekTarget) ? d.weekTarget : base.weekTarget,
+    };
+  }
+
+  function loadCache() {
     try {
-      return new Set(JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"));
-    } catch {
-      return new Set();
+      const raw = localStorage.getItem(CACHE_KEY);
+      if (raw) return normalizeUD(JSON.parse(raw));
+      const legacy = localStorage.getItem(LEGACY_KEY); // migrate old done-only storage
+      if (legacy) { const ud = defaultUD(); ud.done = JSON.parse(legacy); return ud; }
+    } catch {}
+    return defaultUD();
+  }
+
+  let UD = loadCache();
+  let done = new Set(UD.done);
+
+  let persistTimer;
+  function serialize() { UD.done = [...done]; UD.celebrated = [...celebrated]; return JSON.parse(JSON.stringify(UD)); }
+  function persist(pushCloud = true) {
+    UD.done = [...done];
+    UD.celebrated = [...celebrated];
+    try { localStorage.setItem(CACHE_KEY, JSON.stringify(UD)); } catch {}
+    if (pushCloud && window.Cloud && typeof window.Cloud.save === "function") {
+      clearTimeout(persistTimer);
+      persistTimer = setTimeout(() => window.Cloud.save(serialize()), 400);
     }
   }
-  function saveProgress() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify([...done]));
-  }
+  function saveProgress() { persist(); }
+
+  // Bridge used by auth.js to push cloud data into the app in real time.
+  window.CloudBridge = {
+    applyRemote(data) {
+      UD = normalizeUD(data);
+      done = new Set(UD.done);
+      celebrated = new Set(UD.celebrated);
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify(UD)); } catch {}
+      prevLevel = null; // don't fire level-up/badge celebrations on remote hydrate
+      renderTracker();
+      const wg = $("#wgTarget"); if (wg) wg.value = UD.weekTarget;
+      updateAllProgress();
+    },
+    localData() { return serialize(); },
+    reset() { applyResetState(); },
+  };
 
   const totalTasks = TRACKER.reduce((n, p) => n + p.tasks.length, 0);
 
@@ -215,23 +260,14 @@
   }
 
   /* ---------------- Scoring / gamification ---------------- */
-  const STREAK_KEY = "cloudpath.streak.v1";
-  const CELEBRATED_KEY = "cloudpath.badges.v1";
-  const LOG_KEY = "cloudpath.log.v1";
-  const WG_TARGET_KEY = "cloudpath.weekgoal.v1";
-  let celebrated = new Set(loadJSON(CELEBRATED_KEY, []));
   let prevLevel = null; // avoids level-up toast on first paint
 
-  function loadJSON(key, fallback) {
-    try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
-  }
   function todayStr() { return new Date().toISOString().slice(0, 10); }
   function daysBetween(a, b) { return Math.round((new Date(b) - new Date(a)) / 86400000); }
 
   // Completion log maps taskId -> date, used for weekly XP.
-  function getLog() { return loadJSON(LOG_KEY, {}); }
-  function logCompletion(id) { const l = getLog(); l[id] = todayStr(); localStorage.setItem(LOG_KEY, JSON.stringify(l)); }
-  function removeFromLog(id) { const l = getLog(); delete l[id]; localStorage.setItem(LOG_KEY, JSON.stringify(l)); }
+  function logCompletion(id) { UD.log[id] = todayStr(); }
+  function removeFromLog(id) { delete UD.log[id]; }
 
   // Monday-based start of the current week (YYYY-MM-DD).
   function weekStartStr() {
@@ -243,29 +279,39 @@
   }
   function weeklyXp() {
     const start = weekStartStr();
-    const log = getLog();
     let count = 0;
-    for (const id in log) if (log[id] >= start && done.has(id)) count++;
+    for (const id in UD.log) if (UD.log[id] >= start && done.has(id)) count++;
     return count * XP_PER_TASK;
   }
   function getWeekTarget() {
-    const v = parseInt(localStorage.getItem(WG_TARGET_KEY));
-    return Number.isFinite(v) && v >= 10 ? v : 150;
+    return Number.isFinite(UD.weekTarget) && UD.weekTarget >= 10 ? UD.weekTarget : 150;
   }
 
-  function getStreak() {
-    return loadJSON(STREAK_KEY, { count: 0, last: null });
-  }
+  function getStreak() { return UD.streak; }
   // Called when a task is completed — advances the daily streak.
   function recordActivity() {
-    const s = getStreak();
+    const s = UD.streak;
     const today = todayStr();
     if (s.last === today) return;
     if (s.last && daysBetween(s.last, today) === 1) s.count += 1;
     else s.count = 1;
     s.last = today;
-    localStorage.setItem(STREAK_KEY, JSON.stringify(s));
   }
+
+  // Reset all progress to defaults (used by the Reset button and on logout).
+  function applyResetState() {
+    UD = defaultUD();
+    done = new Set();
+    celebrated = new Set();
+    prevLevel = null;
+    persist();
+    $$("#trackerList .track-task").forEach((el) => el.classList.remove("done"));
+    const wg = $("#wgTarget"); if (wg) wg.value = UD.weekTarget;
+    updateAllProgress();
+    prevLevel = levelFromXp(0).level;
+  }
+
+  let celebrated = new Set(UD.celebrated);
 
   // Level curve: level N requires 100*N cumulative XP (triangular).
   function levelFromXp(xp) {
@@ -332,7 +378,8 @@
       if (!Number.isFinite(v) || v < 10) v = 10;
       v = Math.round(v / 10) * 10;
       input.value = v;
-      localStorage.setItem(WG_TARGET_KEY, v);
+      UD.weekTarget = v;
+      persist();
       updateWeeklyGoal();
     });
     updateWeeklyGoal();
@@ -478,7 +525,7 @@
       if (el) el.classList.add("just-unlocked");
       celebrate(`🏆 Achievement unlocked: ${b.name}!`);
     });
-    if (newlyUnlocked.length) localStorage.setItem(CELEBRATED_KEY, JSON.stringify([...celebrated]));
+    if (newlyUnlocked.length) persist();
   }
 
   /* ---------------- Navigation ---------------- */
@@ -531,16 +578,7 @@
   function initReset() {
     $("#resetBtn").addEventListener("click", () => {
       if (!confirm("Reset all your progress? This can't be undone.")) return;
-      done = new Set();
-      celebrated = new Set();
-      prevLevel = null;
-      localStorage.removeItem(CELEBRATED_KEY);
-      localStorage.removeItem(STREAK_KEY);
-      localStorage.removeItem(LOG_KEY);
-      saveProgress();
-      $$("#trackerList .track-task").forEach((el) => el.classList.remove("done"));
-      updateAllProgress();
-      prevLevel = levelFromXp(0).level;
+      applyResetState();
       toast("Progress reset");
     });
   }

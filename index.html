@@ -12,6 +12,25 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>☁️</text></svg>" />
 </head>
 <body>
+  <!-- Auth gate (shown only when Firebase is configured) -->
+  <div class="auth-overlay" id="authOverlay">
+    <div class="auth-card">
+      <div class="auth-brand"><span class="auth-logo">☁️</span> Azure Architect Roadmap</div>
+      <p class="auth-tagline">Sign in to sync your progress across all your devices.</p>
+      <div class="auth-tabs">
+        <button class="auth-tab active" data-mode="login">Log in</button>
+        <button class="auth-tab" data-mode="signup">Sign up</button>
+      </div>
+      <label class="auth-label" for="authEmail">Email</label>
+      <input id="authEmail" type="email" class="auth-input" placeholder="you@example.com" autocomplete="email" />
+      <label class="auth-label" for="authPass">Password</label>
+      <input id="authPass" type="password" class="auth-input" placeholder="••••••••" autocomplete="current-password" />
+      <div class="auth-error" id="authError"></div>
+      <button class="auth-submit" id="authSubmit">Log in</button>
+      <p class="auth-note">🔒 Your progress is stored securely and privately in the cloud.</p>
+    </div>
+  </div>
+
   <!-- Progress rail -->
   <div class="scroll-progress" id="scrollProgress"></div>
 
@@ -50,6 +69,7 @@
       </button>
       <button class="reset-btn" id="resetBtn" title="Reset all progress">Reset</button>
     </div>
+    <div class="user-chip" id="userChip"></div>
   </aside>
 
   <button class="menu-btn" id="menuBtn" aria-label="Menu">☰</button>
@@ -316,7 +336,14 @@
     </footer>
   </main>
 
+  <!-- Firebase (compat SDK) for auth + cloud sync -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+  <script src="js/firebase-config.js"></script>
+
   <script src="js/data.js"></script>
   <script src="js/app.js"></script>
+  <script src="js/auth.js"></script>
 </body>
 </html>
