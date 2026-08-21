@@ -113,6 +113,9 @@
       "auth/wrong-password": "Incorrect email or password.",
       "auth/user-not-found": "No account with that email — sign up first.",
       "auth/network-request-failed": "Network error — check your connection.",
+      "auth/operation-not-allowed": "This sign-in method isn't enabled in Firebase yet.",
+      "auth/unauthorized-domain": "This domain isn't authorized in Firebase Auth settings.",
+      "auth/popup-blocked": "Popup blocked — allow popups and try again.",
       "auth/too-many-requests": "Too many attempts. Please try again shortly.",
     }[code] || "Something went wrong. Please try again.";
   }
@@ -122,6 +125,24 @@
     if (!submit) return;
     const tabs = document.querySelectorAll(".auth-tab");
     let mode = "login";
+
+    // Google sign-in
+    const googleBtn = $("googleBtn");
+    if (googleBtn) {
+      googleBtn.addEventListener("click", async () => {
+        showError("");
+        const provider = new firebase.auth.GoogleAuthProvider();
+        try {
+          await auth.signInWithPopup(provider);
+        } catch (ex) {
+          // Popups can be blocked (or unavailable on file://) — fall back to redirect.
+          if (ex.code === "auth/popup-blocked" || ex.code === "auth/operation-not-supported-in-this-environment" || ex.code === "auth/cancelled-popup-request") {
+            try { await auth.signInWithRedirect(provider); return; } catch (e2) { showError(mapError(e2.code)); return; }
+          }
+          if (ex.code !== "auth/popup-closed-by-user") showError(mapError(ex.code));
+        }
+      });
+    }
 
     tabs.forEach((t) =>
       t.addEventListener("click", () => {
