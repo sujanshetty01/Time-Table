@@ -145,6 +145,7 @@
       renderResources();
       renderTrackerFilter();
       renderTracker();
+      renderCoach();
     }
   }
 
@@ -277,6 +278,69 @@
   function renderMistakes() {
     const el = $("#mistakesList");
     if (el) el.innerHTML = MISTAKES.map((m) => `<div class="mistake-item">${m}</div>`).join("");
+  }
+
+  /* ---------------- AI Career Coach (deterministic) ---------------- */
+  function cleanLabel(s) { return s.replace(/^📘 Study — Month \d+:\s*/, "").replace(/^📦 /, "").replace(/^📘 /, ""); }
+
+  function renderCoach() {
+    if (!$("#coachNBA")) return;
+    const goalKey = (profile && profile.careerGoalKey) || "cloud-architect";
+    const goalLabel = (profile && profile.careerGoalLabel) || "Cloud Architect";
+    const content = typeof getCoachContent === "function" ? getCoachContent(goalKey) : { interview: [], projects: [] };
+
+    const allTasks = TRACKER.flatMap((p) => p.tasks.map((t) => ({ ...t, phase: p.title })));
+    const total = allTasks.length;
+    const doneCount = allTasks.filter((t) => done.has(t.id)).length;
+    const pct = total ? Math.round((doneCount / total) * 100) : 0;
+    const nextTasks = allTasks.filter((t) => !done.has(t.id)).slice(0, 3);
+
+    // Next best action, tied to the current learning block if we're in one.
+    const now = new Date();
+    const mins = now.getHours() * 60 + now.getMinutes();
+    const inWindow = SCHEDULE.length && mins >= SCHEDULE[0].startMin && mins < SCHEDULE[SCHEDULE.length - 1].endMin;
+    const block = inWindow ? SCHEDULE.find((b) => mins >= b.startMin && mins < b.endMin) : null;
+    let nba;
+    if (!nextTasks.length) {
+      nba = `🎉 You've completed the entire ${goalLabel} roadmap — time to polish your portfolio and interview!`;
+    } else {
+      const t = nextTasks[0];
+      const when = block ? `During your <strong>${block.title}</strong> block right now, ` : "In your next learning session, ";
+      nba = `${when}focus on: <strong>${cleanLabel(t.label)}</strong> <span class="nba-phase">${t.phase}</span>`;
+    }
+    $("#coachNBA").innerHTML =
+      `<div class="cc-icon">✷</div><div class="cc-body"><h4>Next best action</h4><p>${nba}</p>` +
+      `<div class="nba-meta">${doneCount}/${total} tasks · ${pct}% of your ${goalLabel} path</div></div>`;
+
+    // Skill-gap analysis by phase.
+    const gap = PHASES.map((p) => {
+      const tp = TRACKER.find((x) => x.id === p.id);
+      const c = tp ? tp.tasks.filter((x) => done.has(x.id)).length : 0;
+      const tot = tp ? tp.tasks.length : 0;
+      const pc = tot ? Math.round((c / tot) * 100) : 0;
+      const status = pc === 100 ? "Mastered" : pc > 0 ? "In progress" : "Upcoming";
+      return { title: p.title, pc, status };
+    });
+    $("#coachGap").innerHTML = `<h4>🎯 Skill-gap analysis</h4>` + gap.map((g) =>
+      `<div class="gap-row"><div class="gap-top"><span>${g.title}</span>` +
+      `<span class="gap-badge ${g.status.replace(/\s/g, "").toLowerCase()}">${g.status}</span></div>` +
+      `<div class="gap-bar"><div class="gap-fill" style="width:${g.pc}%"></div></div></div>`).join("");
+
+    // Recommended next tasks.
+    $("#coachNext").innerHTML = `<h4>✅ Recommended next</h4>` + (nextTasks.length
+      ? `<ul class="cc-list">${nextTasks.map((t) => `<li>${cleanLabel(t.label)}</li>`).join("")}</ul>`
+      : `<p class="cc-empty">All caught up — great work!</p>`);
+
+    // Interview prep.
+    const qs = (content.interview || []).slice(0, 5);
+    $("#coachInterview").innerHTML = `<h4>💬 Interview prep</h4><ul class="cc-list qa">${qs.map((q) => `<li>${q}</li>`).join("")}</ul>`;
+
+    // Project idea that advances with progress.
+    const projs = content.projects || [];
+    const pIdx = Math.min(Math.max(projs.length - 1, 0), Math.floor(pct / 34));
+    $("#coachProject").innerHTML =
+      `<h4>🛠️ Project idea for you</h4><p class="cc-proj">${projs[pIdx] || "Build a portfolio project applying your latest skills."}</p>` +
+      `<p class="cc-proj-hint">Matched to your current stage (${pct}% complete).</p>`;
   }
 
   function renderResources() {
@@ -620,6 +684,8 @@
       celebrate(`🏆 Achievement unlocked: ${b.name}!`);
     });
     if (newlyUnlocked.length) persist();
+
+    if (typeof renderCoach === "function") renderCoach();
   }
 
   /* ---------------- Navigation ---------------- */
@@ -859,6 +925,7 @@
     renderCompetencies();
     renderMistakes();
     renderResources();
+    renderCoach();
     renderTrackerFilter();
     renderTracker();
     initNav();

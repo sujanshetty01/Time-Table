@@ -603,6 +603,36 @@ select.ob-input { cursor: pointer; }
 .mistake-item { font-size: 13.5px; color: var(--text-dim); background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--rose); border-radius: var(--radius-sm); padding: 12px 16px; display: flex; gap: 10px; }
 .mistake-item::before { content: "✗"; color: var(--rose); font-weight: 800; flex: 0 0 auto; }
 
+/* AI Career Coach */
+.coach-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+.coach-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px; }
+.coach-card h4 { font-size: 14px; font-weight: 700; margin-bottom: 12px; }
+.coach-card.nba { grid-column: 1 / -1; display: flex; gap: 18px; align-items: flex-start; background: linear-gradient(135deg, rgba(91,140,255,0.14), rgba(139,92,246,0.08)); }
+.cc-icon { font-size: 30px; flex: 0 0 auto; filter: drop-shadow(0 2px 8px rgba(91,140,255,0.5)); }
+.cc-body h4 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent); margin-bottom: 6px; }
+.cc-body p { font-size: 16px; color: var(--text); line-height: 1.5; }
+.nba-phase { display: inline-block; font-size: 12px; color: var(--text-mute); }
+.nba-meta { font-size: 12.5px; color: var(--text-dim); font-weight: 600; margin-top: 10px; }
+
+.gap-row { margin-bottom: 12px; }
+.gap-top { display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-weight: 600; color: var(--text-dim); margin-bottom: 5px; }
+.gap-badge { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 8px; border-radius: 100px; }
+.gap-badge.mastered { background: rgba(52,211,153,0.16); color: var(--green); }
+.gap-badge.inprogress { background: rgba(91,140,255,0.16); color: var(--brand); }
+.gap-badge.upcoming { background: var(--surface-2); color: var(--text-mute); }
+.gap-bar { height: 7px; background: var(--bg); border: 1px solid var(--border); border-radius: 100px; overflow: hidden; }
+.gap-fill { height: 100%; background: linear-gradient(90deg, var(--brand), var(--accent)); border-radius: 100px; transition: width 0.5s ease; }
+
+.cc-list { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+.cc-list li { font-size: 13.5px; color: var(--text-dim); display: flex; gap: 9px; }
+.cc-list li::before { content: "▹"; color: var(--brand); flex: 0 0 auto; }
+.cc-list.qa li::before { content: "💬"; }
+.cc-empty { font-size: 14px; color: var(--green); font-weight: 600; }
+.cc-proj { font-size: 15px; color: var(--text); font-weight: 600; line-height: 1.5; }
+.cc-proj-hint { font-size: 12px; color: var(--text-mute); margin-top: 8px; }
+
+@media (max-width: 760px) { .coach-grid { grid-template-columns: 1fr; } }
+
 /* ============================ Milestones ============================ */
 .milestone-track { display: flex; flex-direction: column; gap: 0; position: relative; }
 .ms-item { display: grid; grid-template-columns: 120px 1fr; gap: 24px; padding-bottom: 34px; position: relative; }

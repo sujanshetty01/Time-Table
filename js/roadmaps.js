@@ -590,3 +590,101 @@ function setActiveRoadmap(goalKey, cloud) {
   TRACKER = buildTracker(PHASES, prefix);
   return { PHASES, MILESTONES, RESOURCES, TRACKER };
 }
+
+/* ===================== AI Coach content (interview Qs + project ideas) ===================== */
+const COACH_CONTENT = {
+  "cloud-architect": {
+    interview: [
+      "Design a highly available web app across multiple regions — walk me through it.",
+      "Hub-and-spoke vs mesh network topology — when would you choose each?",
+      "How do you secure traffic between services privately (no public exposure)?",
+      "When would you choose PaaS over IaaS, and what are the trade-offs?",
+      "How do you approach cost optimization for a large workload?",
+      "Explain RTO vs RPO and how you'd meet a 15-minute RPO.",
+    ],
+    projects: [
+      "Design & deploy a multi-region, fault-tolerant web app with IaC.",
+      "Build a secure hub-and-spoke network with private endpoints.",
+      "Create an enterprise landing zone with governance + FinOps.",
+    ],
+  },
+  "ai-engineer": {
+    interview: [
+      "Explain the bias-variance trade-off.",
+      "How does attention work in a transformer?",
+      "Walk through building a retrieval-augmented generation (RAG) system.",
+      "How do you evaluate the quality of an LLM's output?",
+      "What is overfitting and how do you prevent it?",
+      "How would you deploy and monitor a model in production?",
+    ],
+    projects: [
+      "Build a RAG chatbot over a document set with citations.",
+      "Fine-tune a small LLM and evaluate it against the base model.",
+      "Deploy a monitored image-classification API.",
+    ],
+  },
+  "devops-engineer": {
+    interview: [
+      "Describe a full CI/CD pipeline you've built end to end.",
+      "How does Kubernetes schedule pods onto nodes?",
+      "Blue-green vs canary deployments — when to use each?",
+      "How do you manage secrets safely in a pipeline?",
+      "Explain infrastructure as code and its benefits.",
+      "How do you design a system for observability?",
+    ],
+    projects: [
+      "Build a GitOps-driven CI/CD pipeline that deploys to Kubernetes.",
+      "Provision a full environment with reusable Terraform modules.",
+      "Set up a Prometheus + Grafana observability stack with alerts.",
+    ],
+  },
+  "data-engineer": {
+    interview: [
+      "Batch vs streaming processing — when would you use each?",
+      "Explain star vs snowflake schema.",
+      "How does Spark partitioning affect performance?",
+      "How do you ensure data quality in a pipeline?",
+      "What does idempotency mean in ETL and why does it matter?",
+      "How would you design a lakehouse architecture?",
+    ],
+    projects: [
+      "Build an Airflow-orchestrated ETL pipeline into a warehouse.",
+      "Create a real-time streaming pipeline with Kafka.",
+      "Build a dbt project with tests and data lineage.",
+    ],
+  },
+  "cybersecurity-engineer": {
+    interview: [
+      "Walk through the OWASP Top 10.",
+      "How do you respond to a security incident, step by step?",
+      "Explain defense in depth with examples.",
+      "How does a SIEM help with threat detection?",
+      "What is least privilege and how do you enforce it?",
+      "Symmetric vs asymmetric encryption — when to use each?",
+    ],
+    projects: [
+      "Build and defend a lab network with an IDS + SIEM.",
+      "Perform a web pentest and write a remediation report.",
+      "Run a cloud security audit and fix the misconfigurations.",
+    ],
+  },
+  "backend-engineer": {
+    interview: [
+      "Design a URL shortener — walk me through the system.",
+      "Explain database indexing and when it can hurt performance.",
+      "How do you scale a service horizontally?",
+      "REST vs gRPC — what are the trade-offs?",
+      "How do you prevent race conditions in concurrent requests?",
+      "Explain caching strategies and cache invalidation.",
+    ],
+    projects: [
+      "Build a scalable REST API with auth, caching, and a job queue.",
+      "Split a monolith into microservices with Docker.",
+      "Design and deploy a rate-limited API with full observability.",
+    ],
+  },
+};
+
+function getCoachContent(goalKey) {
+  return COACH_CONTENT[goalKey] || COACH_CONTENT["cloud-architect"];
+}
