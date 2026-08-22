@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Sujan's personalized 12-month roadmap from Azure fundamentals to Azure Solutions Architect Expert." />
-  <title>Azure Architect Roadmap — Sujan</title>
+  <meta name="description" content="PathPilot generates and continuously adapts a personalized learning roadmap and timetable for any tech career goal." />
+  <title>PathPilot — Adaptive Learning Planner</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
@@ -12,10 +12,12 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>☁️</text></svg>" />
 </head>
 <body>
+  <a href="#overview" class="skip-link">Skip to main content</a>
+
   <!-- Auth gate (shown only when Firebase is configured) -->
-  <div class="auth-overlay" id="authOverlay">
+  <div class="auth-overlay" id="authOverlay" role="dialog" aria-modal="true" aria-label="Sign in to PathPilot">
     <div class="auth-card">
-      <div class="auth-brand"><span class="auth-logo">☁️</span> Azure Architect Roadmap</div>
+      <div class="auth-brand"><span class="auth-logo">🧭</span> PathPilot</div>
       <p class="auth-tagline">Sign in to sync your progress across all your devices.</p>
       <div class="auth-tabs">
         <button class="auth-tab active" data-mode="login">Log in</button>
@@ -42,10 +44,10 @@
   <!-- Sidebar navigation -->
   <aside class="sidebar" id="sidebar">
     <div class="brand">
-      <span class="brand-logo">☁️</span>
+      <span class="brand-logo">🧭</span>
       <div class="brand-text">
-        <strong>Azure Path</strong>
-        <small>Network → Architect</small>
+        <strong>PathPilot</strong>
+        <small>Adaptive Learning Planner</small>
       </div>
     </div>
     <div class="side-clock" id="sideClock">
@@ -67,16 +69,16 @@
       <a href="#resources" class="nav-link"><span class="nav-ico">❖</span> Resources</a>
     </nav>
     <div class="sidebar-footer">
-      <button class="theme-toggle" id="themeToggle" title="Toggle theme">
-        <span class="theme-ico">🌙</span>
+      <button class="theme-toggle" id="themeToggle" title="Toggle theme" aria-label="Toggle light or dark theme">
+        <span class="theme-ico" aria-hidden="true">🌙</span>
       </button>
-      <button class="theme-toggle" id="notifToggle" title="Enable reminders">
-        <span class="notif-ico">🔔</span>
+      <button class="theme-toggle" id="notifToggle" title="Enable reminders" aria-label="Enable learning reminders">
+        <span class="notif-ico" aria-hidden="true">🔔</span>
       </button>
-      <button class="theme-toggle" id="profileBtn" title="Edit profile & schedule">
-        <span>👤</span>
+      <button class="theme-toggle" id="profileBtn" title="Edit profile & schedule" aria-label="Edit your profile and schedule">
+        <span aria-hidden="true">👤</span>
       </button>
-      <button class="reset-btn" id="resetBtn" title="Reset all progress">Reset</button>
+      <button class="reset-btn" id="resetBtn" title="Reset all progress" aria-label="Reset all your progress">Reset</button>
     </div>
     <div class="user-chip" id="userChip"></div>
     <div class="admin-slot" id="adminSlot"></div>
@@ -87,16 +89,16 @@
   <main class="main">
     <!-- ===================== OVERVIEW / HERO ===================== -->
     <section id="overview" class="section hero">
-      <div class="hero-badge">Azure Solutions Architect Journey</div>
+      <div class="hero-badge">Your Personalized Learning Plan</div>
       <h1 class="hero-title">
-        Own <span class="grad-1">Azure</span>.<br />
-        Become the <span class="grad-2">Architect</span>.
+        Own Your <span class="grad-1">Growth</span>.<br />
+        Reach Your <span class="grad-2">Goal</span>.
       </h1>
       <p class="hero-sub">
-        Sujan — this is your 12-month path from Azure fundamentals to a job-ready
-        <strong>Azure Solutions Architect Expert</strong>. Built around your real schedule
-        (<strong>12:00–3:00 PM weekdays</strong>, ~15–18 hrs/week), following the
-        <strong>AZ-900 → AZ-104 → AZ-305</strong> path with hands-on architecture projects.
+        Tell PathPilot your goal, schedule, and experience — and get a personalized,
+        self-adapting <strong>roadmap and timetable</strong> built around the hours you
+        actually have. Track progress, close skill gaps, and stay job-ready across cloud,
+        AI, DevOps, data, security, and backend paths.
       </p>
 
       <!-- Gamified scoreboard -->

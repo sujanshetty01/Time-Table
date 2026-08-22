@@ -32,20 +32,29 @@
   let step = 0;
   let draft = {};
   let firstRun = false;
+  let lastFocus = null;
+
+  function onKey(e) {
+    if (e.key === "Escape" && !firstRun) close();
+  }
 
   function open(existing, opts) {
     firstRun = !!(opts && opts.first);
     draft = existing ? { ...existing } : defaults();
     step = 0;
     ensureDom();
+    lastFocus = document.activeElement;
     document.getElementById("obOverlay").classList.add("show");
     document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", onKey);
     render();
   }
   function close() {
     const o = document.getElementById("obOverlay");
     if (o) o.classList.remove("show");
     document.body.style.overflow = "";
+    document.removeEventListener("keydown", onKey);
+    if (lastFocus && lastFocus.focus) lastFocus.focus();
   }
 
   function defaults() {
@@ -75,6 +84,9 @@
       `<span class="ob-dot ${i === step ? "active" : ""} ${i < step ? "done" : ""}"></span>`).join("");
     body.innerHTML = s.render();
     wireStep();
+    // Move focus to the first control of this step for keyboard/screen-reader users.
+    const first = body.querySelector("input, select, button");
+    if (first) first.focus();
     document.getElementById("obBack").style.visibility = step === 0 ? "hidden" : "visible";
     document.getElementById("obNext").textContent = step === STEPS.length - 1 ? "Generate my plan ✨" : "Continue";
     document.getElementById("obSkip").style.display = firstRun ? "none" : "inline";
@@ -224,6 +236,9 @@
     const el = document.createElement("div");
     el.id = "obOverlay";
     el.className = "ob-overlay";
+    el.setAttribute("role", "dialog");
+    el.setAttribute("aria-modal", "true");
+    el.setAttribute("aria-label", "Personalize your learning plan");
     el.innerHTML = `
       <div class="ob-card">
         <div class="ob-head">

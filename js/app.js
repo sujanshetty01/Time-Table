@@ -151,16 +151,21 @@
 
   function applyGreeting() {
     if (!profile || !profile.onboardedAt) return; // keep default hero until onboarded
-    const goal = profile.careerGoalLabel || "Cloud Architect";
-    const name = profile.fullName ? profile.fullName.split(" ")[0] : "there";
+    const goal = escHtml(profile.careerGoalLabel || "Cloud Architect");
+    const name = escHtml(profile.fullName ? profile.fullName.split(" ")[0] : "there");
     const badge = $(".hero-badge");
-    if (badge) badge.textContent = `${goal} Journey`;
+    if (badge) badge.textContent = `${profile.careerGoalLabel || "Cloud Architect"} Journey`;
     const sub = $(".hero-sub");
     if (sub) {
       const [ws, we] = learnWindow();
       sub.innerHTML = `Hi <strong>${name}</strong> — your personalized path to <strong>${goal}</strong>. ` +
         `Core learning window: <strong>${hmm(ws)}–${hmm(we)}</strong> on weekdays, split into Learn → Lab → Document → Review.`;
     }
+  }
+
+  function escHtml(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   }
 
 
@@ -380,10 +385,10 @@
         </div>
         <div class="track-tasks">
           ${p.tasks.map((t) => `
-            <div class="track-task ${done.has(t.id) ? "done" : ""}" data-id="${t.id}">
-              <span class="track-check">${checkSVG}</span>
+            <button type="button" class="track-task ${done.has(t.id) ? "done" : ""}" data-id="${t.id}" role="checkbox" aria-checked="${done.has(t.id)}">
+              <span class="track-check" aria-hidden="true">${checkSVG}</span>
               <span class="track-label">${t.label}</span>
-            </div>`).join("")}
+            </button>`).join("")}
         </div>
       </div>`).join("");
 
@@ -396,10 +401,10 @@
 
   function toggleTask(id, el) {
     if (done.has(id)) {
-      done.delete(id); el.classList.remove("done");
+      done.delete(id); el.classList.remove("done"); el.setAttribute("aria-checked", "false");
       removeFromLog(id);
     } else {
-      done.add(id); el.classList.add("done");
+      done.add(id); el.classList.add("done"); el.setAttribute("aria-checked", "true");
       logCompletion(id);
       recordActivity();
       toast(`+${XP_PER_TASK} XP · progress saved ✓`);
@@ -460,7 +465,7 @@
     celebrated = new Set();
     prevLevel = null;
     persist();
-    $$("#trackerList .track-task").forEach((el) => el.classList.remove("done"));
+    $$("#trackerList .track-task").forEach((el) => { el.classList.remove("done"); el.setAttribute("aria-checked", "false"); });
     const wg = $("#wgTarget"); if (wg) wg.value = UD.weekTarget;
     updateAllProgress();
     prevLevel = levelFromXp(0).level;
@@ -878,7 +883,13 @@
   /* ---------------- Toast ---------------- */
   let toastEl, toastTimer;
   function toast(msg) {
-    if (!toastEl) { toastEl = document.createElement("div"); toastEl.className = "toast"; document.body.appendChild(toastEl); }
+    if (!toastEl) {
+      toastEl = document.createElement("div");
+      toastEl.className = "toast";
+      toastEl.setAttribute("role", "status");
+      toastEl.setAttribute("aria-live", "polite");
+      document.body.appendChild(toastEl);
+    }
     toastEl.textContent = msg;
     toastEl.classList.add("show");
     clearTimeout(toastTimer);

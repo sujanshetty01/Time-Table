@@ -134,17 +134,18 @@
   });
 
   /* -------- UI helpers -------- */
-  function showOverlay() { const o = $("authOverlay"); if (o) { o.classList.add("show"); document.body.style.overflow = "hidden"; } }
+  function showOverlay() { const o = $("authOverlay"); if (o) { o.classList.add("show"); document.body.style.overflow = "hidden"; const f = $("googleBtn") || $("authEmail"); if (f) setTimeout(() => f.focus(), 50); } }
   function hideOverlay() { const o = $("authOverlay"); if (o) { o.classList.remove("show"); document.body.style.overflow = ""; } }
 
   function setChip(email) {
     const chip = $("userChip");
     if (!chip) return;
     if (email) {
+      const safe = String(email).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
       chip.innerHTML =
         `<span class="uc-dot"></span>` +
-        `<span class="uc-email" title="${email}">${email}</span>` +
-        `<button class="uc-logout" id="logoutBtn" title="Log out">⏻</button>`;
+        `<span class="uc-email" title="${safe}">${safe}</span>` +
+        `<button class="uc-logout" id="logoutBtn" title="Log out" aria-label="Log out">⏻</button>`;
       const lb = $("logoutBtn");
       if (lb) lb.onclick = () => auth.signOut();
     } else {

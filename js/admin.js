@@ -8,6 +8,8 @@
 
   const $ = (id) => document.getElementById(id);
   let built = false;
+  let lastFocus = null;
+  function onKey(e) { if (e.key === "Escape") close(); }
 
   function auth() { return window.PathAuth; }
   function canOpen() { const a = auth(); return a && (a.isAdmin() || a.isMentor()); }
@@ -29,11 +31,14 @@
     const el = document.createElement("div");
     el.id = "adminOverlay";
     el.className = "admin-overlay";
+    el.setAttribute("role", "dialog");
+    el.setAttribute("aria-modal", "true");
+    el.setAttribute("aria-label", "Admin panel");
     el.innerHTML = `
       <div class="admin-card">
         <div class="admin-head">
           <h2 id="adminTitle">Admin panel</h2>
-          <button class="admin-close" id="adminCloseBtn">✕</button>
+          <button class="admin-close" id="adminCloseBtn" aria-label="Close admin panel">✕</button>
         </div>
         <div class="admin-stats" id="adminStats"></div>
         <div class="admin-broadcast" id="adminBroadcast"></div>
@@ -52,8 +57,11 @@
     ensureDom();
     const a = auth();
     $("adminTitle").textContent = a.isAdmin() ? "Admin panel" : "Team (read-only)";
+    lastFocus = document.activeElement;
     $("adminOverlay").classList.add("show");
     document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", onKey);
+    $("adminCloseBtn").focus();
     renderBroadcastForm();
     await load();
   }
@@ -61,6 +69,8 @@
     const o = $("adminOverlay");
     if (o) o.classList.remove("show");
     document.body.style.overflow = "";
+    document.removeEventListener("keydown", onKey);
+    if (lastFocus && lastFocus.focus) lastFocus.focus();
   }
 
   const ROLES = ["user", "mentor", "admin"];
