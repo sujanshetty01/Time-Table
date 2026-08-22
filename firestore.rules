@@ -1,43 +1,234 @@
 rules_version = '2';
 
-// Role-based access: users own their doc; mentors/admins can read all;
-// admins can change a user's role. Bootstrap admin via email allowlist.
 service cloud.firestore {
   match /databases/{database}/documents {
 
     function signedIn() { return request.auth != null; }
-    function myDoc() { return /databases/$(database)/documents/users/$(request.auth.uid); }
+    function isOwner(uid) { return signedIn() && request.auth.uid == uid; }
+    function userDoc(uid) { return /databases/$(database)/documents/users/$(uid); }
+    function myDoc() { return userDoc(request.auth.uid); }
     function myRole() {
       return signedIn() && exists(myDoc()) ? get(myDoc()).data.role : 'user';
     }
     function isAdmin() {
-      return signedIn() && (
-        request.auth.token.email == 'sujankabaddi123@gmail.com' ||
-        myRole() == 'admin'
-      );
+      return signedIn() && myRole() == 'admin';
     }
     function isMentor() {
       return signedIn() && (myRole() == 'mentor' || isAdmin());
     }
-
-    match /users/{uid} {
-      // Owner reads own doc; mentors and admins can read all.
-      allow read: if signedIn() && (request.auth.uid == uid || isMentor());
-      // Owner can create/update own doc but may NOT set or change the role field.
-      allow create: if signedIn() && request.auth.uid == uid
-        && !('role' in request.resource.data);
-      allow update: if signedIn() && request.auth.uid == uid
-        && (!('role' in request.resource.data) || request.resource.data.role == resource.data.role);
-      // Admins may change ONLY the role field of any user.
-      allow update: if isAdmin()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role']);
-      allow delete: if false;
+    function isAssignedMentor(uid) {
+      return isMentor()
+        && exists(userDoc(uid))
+        && get(userDoc(uid)).data.mentorIds is list
+        && get(userDoc(uid)).data.mentorIds.hasAny([request.auth.uid]);
+    }
+    function canReadPrivate(uid) {
+      return isOwner(uid) || isAdmin() || isAssignedMentor(uid);
     }
 
-    // Admin broadcasts: everyone signed-in can read; only admins write.
+    function validRole(role) {
+      return role in ['user', 'mentor', 'admin'];
+    }
+    function validUser(uid, data) {
+      return data.keys().hasAll([
+          'uid', 'email', 'role', 'mentorIds', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'email', 'role', 'mentorIds', 'createdAt', 'updatedAt',
+          'lastAdminActionId'
+        ])
+        && data.uid == uid
+        && data.email is string && data.email.size() > 2 && data.email.size() <= 254
+        && validRole(data.role)
+        && data.mentorIds is list && data.mentorIds.size() <= 50
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && (!('lastAdminActionId' in data)
+          || (data.lastAdminActionId is string && data.lastAdminActionId.size() <= 128));
+    }
+    function isLegacyUser() {
+      return resource.data.keys().hasAny(['profile', 'progress']);
+    }
+    function preservesLegacyAccess(data) {
+      return data.role == (('role' in resource.data) ? resource.data.role : 'user')
+        && data.mentorIds == (('mentorIds' in resource.data) ? resource.data.mentorIds : []);
+    }
+    function validOwnerUpdate(uid) {
+      return validUser(uid, request.resource.data)
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.mentorIds == resource.data.mentorIds
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['email', 'updatedAt']);
+    }
+    function validAudit(data, targetUid) {
+      return data.keys().hasAll([
+          'actorUid', 'targetUid', 'action', 'role', 'mentorIds', 'at'
+        ])
+        && data.keys().hasOnly([
+          'actorUid', 'targetUid', 'action', 'role', 'mentorIds', 'at'
+        ])
+        && data.actorUid == request.auth.uid
+        && data.targetUid == targetUid
+        && data.action == 'update-access'
+        && validRole(data.role)
+        && data.mentorIds is list && data.mentorIds.size() <= 50
+        && data.at == request.time;
+    }
+    function hasMatchingAudit(uid) {
+      let actionId = request.resource.data.lastAdminActionId;
+      let audit = getAfter(/databases/$(database)/documents/adminAudit/$(actionId)).data;
+      return request.resource.data.keys().hasAll(['lastAdminActionId'])
+        && validAudit(audit, uid)
+        && audit.role == request.resource.data.role
+        && audit.mentorIds == request.resource.data.mentorIds;
+    }
+
+    function validProfile(data) {
+      return data.keys().hasAll([
+          'fullName', 'careerGoalKey', 'careerGoalLabel', 'currentRole',
+          'yearsExp', 'skillLevel', 'workStartMin', 'workEndMin',
+          'learnStartMin', 'learnEndMin', 'afterStartMin', 'afterHours',
+          'learningStyles', 'cloud', 'targetCert', 'timelineMonths',
+          'interests', 'onboardedAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'fullName', 'careerGoalKey', 'careerGoalLabel', 'currentRole',
+          'yearsExp', 'skillLevel', 'workStartMin', 'workEndMin',
+          'learnStartMin', 'learnEndMin', 'afterStartMin', 'afterHours',
+          'learningStyles', 'cloud', 'targetCert', 'timelineMonths',
+          'interests', 'onboardedAt', 'updatedAt'
+        ])
+        && data.fullName is string && data.fullName.size() > 0 && data.fullName.size() <= 100
+        && data.careerGoalKey in [
+          'cloud-architect', 'ai-engineer', 'devops-engineer',
+          'data-engineer', 'cybersecurity-engineer', 'backend-engineer'
+        ]
+        && data.careerGoalLabel is string && data.careerGoalLabel.size() <= 80
+        && data.currentRole is string && data.currentRole.size() <= 100
+        && data.yearsExp is int && data.yearsExp >= 0 && data.yearsExp <= 50
+        && data.skillLevel in ['Beginner', 'Intermediate', 'Advanced']
+        && data.workStartMin is int && data.workStartMin >= 0 && data.workStartMin < 1440
+        && data.workEndMin is int && data.workEndMin > data.workStartMin && data.workEndMin < 1440
+        && data.learnStartMin is int && data.learnStartMin >= 0 && data.learnStartMin < 1440
+        && data.learnEndMin is int && data.learnEndMin >= data.learnStartMin + 40 && data.learnEndMin < 1440
+        && data.afterStartMin is int && data.afterStartMin >= 0 && data.afterStartMin < 1440
+        && data.afterHours is number && data.afterHours >= 0 && data.afterHours <= 6
+        && data.learningStyles is list && data.learningStyles.size() <= 5
+        && data.learningStyles.hasOnly([
+          'Videos', 'Documentation', 'Hands-on Labs', 'Courses', 'Reading'
+        ])
+        && data.cloud in ['Azure', 'AWS', 'GCP']
+        && data.targetCert is string && data.targetCert.size() <= 100
+        && data.timelineMonths is int && data.timelineMonths >= 1 && data.timelineMonths <= 36
+        && data.interests is list && data.interests.size() <= 20
+        && data.onboardedAt is string && data.onboardedAt.size() <= 40
+        && data.updatedAt is timestamp;
+    }
+    function validPlan(data) {
+      return data.keys().hasAll(['careerGoalKey', 'cloud', 'templateVersion', 'updatedAt'])
+        && data.keys().hasOnly(['careerGoalKey', 'cloud', 'templateVersion', 'updatedAt'])
+        && data.careerGoalKey in [
+          'cloud-architect', 'ai-engineer', 'devops-engineer',
+          'data-engineer', 'cybersecurity-engineer', 'backend-engineer'
+        ]
+        && data.cloud in ['Azure', 'AWS', 'GCP']
+        && data.templateVersion is int && data.templateVersion >= 1
+        && data.updatedAt is timestamp;
+    }
+    function validProgress(data) {
+      return data.keys().hasAll(['done', 'streak', 'log', 'celebrated', 'updatedAt'])
+        && data.keys().hasOnly(['done', 'streak', 'log', 'celebrated', 'updatedAt'])
+        && data.done is list && data.done.size() <= 2000
+        && data.streak is map
+        && data.streak.keys().hasAll(['count', 'last'])
+        && data.streak.keys().hasOnly(['count', 'last'])
+        && data.streak.count is int && data.streak.count >= 0 && data.streak.count <= 10000
+        && (data.streak.last == null
+          || (data.streak.last is string && data.streak.last.size() == 10))
+        && data.log is map && data.log.size() <= 2000
+        && data.celebrated is list && data.celebrated.size() <= 100
+        && data.updatedAt is timestamp;
+    }
+    function validSettings(data) {
+      return data.keys().hasAll(['weekTarget', 'updatedAt'])
+        && data.keys().hasOnly(['weekTarget', 'updatedAt'])
+        && data.weekTarget is int && data.weekTarget >= 10 && data.weekTarget <= 10000
+        && data.updatedAt is timestamp;
+    }
+
+    match /users/{uid} {
+      allow read: if isOwner(uid) || isAdmin() || isAssignedMentor(uid);
+      allow create: if isOwner(uid)
+        && validUser(uid, request.resource.data)
+        && request.resource.data.role == 'user'
+        && request.resource.data.mentorIds.size() == 0;
+      allow update: if isOwner(uid) && (
+        validOwnerUpdate(uid)
+        || (isLegacyUser()
+          && validUser(uid, request.resource.data)
+          && preservesLegacyAccess(request.resource.data))
+      );
+      allow update: if isAdmin()
+        && validUser(uid, request.resource.data)
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['role', 'mentorIds', 'updatedAt', 'lastAdminActionId'])
+        && hasMatchingAudit(uid);
+      allow delete: if false;
+
+      match /profiles/{profileId} {
+        allow read: if canReadPrivate(uid);
+        allow create, update: if profileId == 'main' && isOwner(uid)
+          && validProfile(request.resource.data);
+        allow delete: if false;
+      }
+
+      match /plans/{planId} {
+        allow read: if canReadPrivate(uid);
+        allow create, update: if planId == 'active' && isOwner(uid)
+          && validPlan(request.resource.data);
+        allow delete: if false;
+      }
+
+      match /taskProgress/{progressId} {
+        allow read: if canReadPrivate(uid);
+        allow create, update: if progressId == 'main' && isOwner(uid)
+          && validProgress(request.resource.data);
+        allow delete: if false;
+      }
+
+      match /settings/{settingsId} {
+        allow read: if canReadPrivate(uid);
+        allow create, update: if settingsId == 'main' && isOwner(uid)
+          && validSettings(request.resource.data);
+        allow delete: if false;
+      }
+    }
+
+    match /adminAudit/{actionId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin()
+        && validAudit(request.resource.data, request.resource.data.targetUid);
+      allow update, delete: if false;
+    }
+
     match /broadcasts/{id} {
       allow read: if signedIn();
-      allow write: if isAdmin();
+      allow create: if isAdmin()
+        && request.resource.data.keys().hasAll(['title', 'body', 'at', 'byUid'])
+        && request.resource.data.keys().hasOnly(['title', 'body', 'at', 'byUid'])
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 120
+        && request.resource.data.body is string
+        && request.resource.data.body.size() <= 1000
+        && request.resource.data.byUid == request.auth.uid
+        && request.resource.data.at == request.time;
+      allow update, delete: if false;
     }
   }
 }

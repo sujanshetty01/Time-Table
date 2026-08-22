@@ -32,12 +32,10 @@
   auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
 
   let currentUser = null;
-  let unsub = null;
+  let unsubs = [];
 
-  // Role-based access. Bootstrap admin via email allowlist (matches Firestore rules).
-  const ADMIN_EMAILS = ["sujankabaddi123@gmail.com"];
   let currentRole = "user";
-  function computeIsAdmin() { return currentRole === "admin" || (currentUser && ADMIN_EMAILS.includes(currentUser.email)); }
+  function computeIsAdmin() { return currentRole === "admin"; }
   window.PathAuth = {
     uid: () => currentUser && currentUser.uid,
     email: () => currentUser && currentUser.email,
@@ -45,15 +43,54 @@
     isAdmin: () => computeIsAdmin(),
     isMentor: () => currentRole === "mentor" || computeIsAdmin(),
     async listUsers() {
-      const snap = await db.collection("users").get();
-      return snap.docs.map((d) => ({ uid: d.id, ...d.data() }));
+      let query = db.collection("users");
+      if (!computeIsAdmin()) query = query.where("mentorIds", "array-contains", currentUser.uid);
+      const snap = await query.get();
+      return Promise.all(snap.docs.map(async (userDoc) => {
+        const [profileDoc, progressDoc] = await Promise.all([
+          userDoc.ref.collection("profiles").doc("main").get(),
+          userDoc.ref.collection("taskProgress").doc("main").get(),
+        ]);
+        return {
+          uid: userDoc.id,
+          ...userDoc.data(),
+          profile: profileDoc.exists ? profileDoc.data() : null,
+          progress: progressDoc.exists ? progressDoc.data() : null,
+        };
+      }));
     },
-    setUserRole(uid, role) {
-      return db.collection("users").doc(uid).set({ role }, { merge: true });
+    async setUserRole(uid, role) {
+      if (!computeIsAdmin() || !["user", "mentor", "admin"].includes(role)) {
+        throw new Error("Not authorized to update roles.");
+      }
+      const userRef = db.collection("users").doc(uid);
+      const snap = await userRef.get();
+      if (!snap.exists) throw new Error("User not found.");
+      const mentorIds = Array.isArray(snap.data().mentorIds) ? snap.data().mentorIds : [];
+      const auditRef = db.collection("adminAudit").doc();
+      const batch = db.batch();
+      batch.update(userRef, {
+        role,
+        mentorIds,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        lastAdminActionId: auditRef.id,
+      });
+      batch.set(auditRef, {
+        actorUid: currentUser.uid,
+        targetUid: uid,
+        action: "update-access",
+        role,
+        mentorIds,
+        at: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      return batch.commit();
     },
     broadcast(title, body) {
       return db.collection("broadcasts").add({
-        title, body, at: firebase.firestore.FieldValue.serverTimestamp(), by: currentUser && currentUser.email,
+        title,
+        body,
+        at: firebase.firestore.FieldValue.serverTimestamp(),
+        byUid: currentUser && currentUser.uid,
       });
     },
   };
@@ -65,64 +102,237 @@
   window.Cloud = {
     save(data) {
       if (!currentUser) return;
-      db.collection("users").doc(currentUser.uid).set(
-        {
-          progress: data,
-          email: currentUser.email,
-          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-      ).catch((e) => console.warn("Cloud save failed:", e.message));
+      const clean = normalizeProgress(data);
+      const userRef = db.collection("users").doc(currentUser.uid);
+      const batch = db.batch();
+      batch.set(userRef.collection("taskProgress").doc("main"), {
+        done: clean.done,
+        streak: clean.streak,
+        log: clean.log,
+        celebrated: clean.celebrated,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      batch.set(userRef.collection("settings").doc("main"), {
+        weekTarget: clean.weekTarget,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      batch.commit().catch((e) => console.warn("Cloud save failed:", e.message));
     },
     saveProfile(profile) {
       if (!currentUser) return;
-      db.collection("users").doc(currentUser.uid).set(
-        { profile, email: currentUser.email, updatedAt: firebase.firestore.FieldValue.serverTimestamp() },
-        { merge: true }
-      ).catch((e) => console.warn("Profile save failed:", e.message));
+      const clean = normalizeProfile(profile);
+      const userRef = db.collection("users").doc(currentUser.uid);
+      const batch = db.batch();
+      batch.set(userRef.collection("profiles").doc("main"), {
+        ...clean,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      batch.set(userRef.collection("plans").doc("active"), {
+        careerGoalKey: clean.careerGoalKey,
+        cloud: clean.cloud,
+        templateVersion: 1,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      batch.commit().catch((e) => console.warn("Profile save failed:", e.message));
     },
   };
 
+  const GOAL_LABELS = {
+    "cloud-architect": "Cloud Architect",
+    "ai-engineer": "AI Engineer",
+    "devops-engineer": "DevOps Engineer",
+    "data-engineer": "Data Engineer",
+    "cybersecurity-engineer": "Cybersecurity Engineer",
+    "backend-engineer": "Backend Engineer",
+  };
+  const LEVELS = ["Beginner", "Intermediate", "Advanced"];
+  const CLOUDS = ["Azure", "AWS", "GCP"];
+  const STYLES = ["Videos", "Documentation", "Hands-on Labs", "Courses", "Reading"];
+  const clampInt = (value, min, max, fallback) => {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? Math.min(max, Math.max(min, parsed)) : fallback;
+  };
+  const cleanText = (value, max) => String(value == null ? "" : value).slice(0, max);
+
+  function normalizeProfile(value) {
+    const source = value && typeof value === "object" ? value : {};
+    const careerGoalKey = Object.hasOwn(GOAL_LABELS, source.careerGoalKey)
+      ? source.careerGoalKey : "cloud-architect";
+    const workStartMin = clampInt(source.workStartMin, 0, 1438, 360);
+    const workEndMin = clampInt(source.workEndMin, workStartMin + 1, 1439, 900);
+    const learnStartMin = clampInt(source.learnStartMin, 0, 1438, 720);
+    const learnEndMin = clampInt(source.learnEndMin, learnStartMin + 40, 1439, 900);
+    return {
+      fullName: cleanText(source.fullName, 100) || "PathPilot learner",
+      careerGoalKey,
+      careerGoalLabel: GOAL_LABELS[careerGoalKey],
+      currentRole: cleanText(source.currentRole, 100),
+      yearsExp: clampInt(source.yearsExp, 0, 50, 0),
+      skillLevel: LEVELS.includes(source.skillLevel) ? source.skillLevel : "Beginner",
+      workStartMin,
+      workEndMin,
+      learnStartMin,
+      learnEndMin,
+      afterStartMin: clampInt(source.afterStartMin, 0, 1439, 1140),
+      afterHours: Math.min(6, Math.max(0, Number(source.afterHours) || 0)),
+      learningStyles: Array.isArray(source.learningStyles)
+        ? [...new Set(source.learningStyles.filter((style) => STYLES.includes(style)))].slice(0, 5)
+        : [],
+      cloud: CLOUDS.includes(source.cloud) ? source.cloud : "Azure",
+      targetCert: cleanText(source.targetCert, 100),
+      timelineMonths: clampInt(source.timelineMonths, 1, 36, 12),
+      interests: Array.isArray(source.interests)
+        ? source.interests.map((item) => cleanText(item, 80)).filter(Boolean).slice(0, 20)
+        : [],
+      onboardedAt: cleanText(source.onboardedAt, 40) || new Date().toISOString(),
+    };
+  }
+
+  function normalizeProgress(value) {
+    const source = value && typeof value === "object" ? value : {};
+    const streak = source.streak && typeof source.streak === "object" ? source.streak : {};
+    const log = source.log && typeof source.log === "object" && !Array.isArray(source.log)
+      ? Object.fromEntries(Object.entries(source.log).slice(0, 2000)) : {};
+    return {
+      done: Array.isArray(source.done) ? [...new Set(source.done)].slice(0, 2000) : [],
+      streak: {
+        count: clampInt(streak.count, 0, 10000, 0),
+        last: typeof streak.last === "string" ? streak.last.slice(0, 10) : null,
+      },
+      log,
+      celebrated: Array.isArray(source.celebrated)
+        ? [...new Set(source.celebrated)].slice(0, 100) : [],
+      weekTarget: clampInt(source.weekTarget, 10, 10000, 150),
+    };
+  }
+
+  async function ensureUserRecord(user) {
+    const userRef = db.collection("users").doc(user.uid);
+    const snap = await userRef.get();
+    const now = firebase.firestore.FieldValue.serverTimestamp();
+    if (!snap.exists) {
+      await userRef.set({
+        uid: user.uid,
+        email: user.email || `${user.uid}@pathpilot.invalid`,
+        role: "user",
+        mentorIds: [],
+        createdAt: now,
+        updatedAt: now,
+      });
+      return;
+    }
+
+    const old = snap.data();
+    if (old.profile || old.progress || !old.uid || !Array.isArray(old.mentorIds)) {
+      const batch = db.batch();
+      const normalizedProfile = old.profile ? normalizeProfile(old.profile) : null;
+      const normalizedProgress = normalizeProgress(old.progress);
+      batch.set(userRef, {
+        uid: user.uid,
+        email: user.email || old.email || `${user.uid}@pathpilot.invalid`,
+        role: ["user", "mentor", "admin"].includes(old.role) ? old.role : "user",
+        mentorIds: Array.isArray(old.mentorIds) ? old.mentorIds.slice(0, 50) : [],
+        createdAt: old.createdAt || now,
+        updatedAt: now,
+      });
+      if (normalizedProfile) {
+        batch.set(userRef.collection("profiles").doc("main"), { ...normalizedProfile, updatedAt: now });
+        batch.set(userRef.collection("plans").doc("active"), {
+          careerGoalKey: normalizedProfile.careerGoalKey,
+          cloud: normalizedProfile.cloud,
+          templateVersion: 1,
+          updatedAt: now,
+        });
+      }
+      batch.set(userRef.collection("taskProgress").doc("main"), {
+        done: normalizedProgress.done,
+        streak: normalizedProgress.streak,
+        log: normalizedProgress.log,
+        celebrated: normalizedProgress.celebrated,
+        updatedAt: now,
+      });
+      batch.set(userRef.collection("settings").doc("main"), {
+        weekTarget: normalizedProgress.weekTarget,
+        updatedAt: now,
+      });
+      await batch.commit();
+      return;
+    }
+
+    await userRef.update({ email: user.email || old.email, updatedAt: now });
+  }
+
   let profileApplied = false;
   function watch(uid) {
-    if (unsub) unsub();
+    unsubs.forEach((unsubscribe) => unsubscribe());
+    unsubs = [];
     profileApplied = false;
-    unsub = db.collection("users").doc(uid).onSnapshot(
+    let progress = null;
+    let weekTarget = 150;
+    const userRef = db.collection("users").doc(uid);
+    unsubs.push(userRef.onSnapshot(
       (snap) => {
-        if (!snap.exists) {
-          // First login on this account: seed cloud from this device's data.
-          window.Cloud.save(window.CloudBridge.localData());
-          if (window.Onboarding) window.Onboarding.open(null, { first: true });
-          return;
-        }
+        if (!snap.exists) return;
         const data = snap.data();
         currentRole = data.role || "user";
         if (window.AdminPanel) window.AdminPanel.refreshAccess();
-        const progress = data.progress || null;
-        if (JSON.stringify(progress) !== JSON.stringify(window.CloudBridge.localData())) {
-          window.CloudBridge.applyRemote(progress);
-        }
-        // Profile: apply once from cloud, or trigger onboarding if missing.
-        if (data.profile && window.PathProfile) {
-          window.PathProfile.apply(data.profile, { save: false });
+      },
+      (err) => console.warn("User snapshot error:", err.message)
+    ));
+    unsubs.push(userRef.collection("profiles").doc("main").onSnapshot(
+      (snap) => {
+        if (snap.exists && window.PathProfile) {
+          const data = { ...snap.data() };
+          delete data.updatedAt;
+          window.PathProfile.apply(data, { save: false });
           profileApplied = true;
-        } else if (!data.profile && !profileApplied && window.Onboarding) {
+        } else if (!profileApplied && window.Onboarding) {
           window.Onboarding.open(null, { first: true });
         }
       },
-      (err) => console.warn("Snapshot error:", err.message)
-    );
+      (err) => console.warn("Profile snapshot error:", err.message)
+    ));
+    const applyProgress = () => {
+      if (!progress) return;
+      const combined = { ...progress, weekTarget };
+      delete combined.updatedAt;
+      if (JSON.stringify(combined) !== JSON.stringify(window.CloudBridge.localData())) {
+        window.CloudBridge.applyRemote(combined);
+      }
+    };
+    unsubs.push(userRef.collection("taskProgress").doc("main").onSnapshot(
+      (snap) => {
+        if (snap.exists) { progress = snap.data(); applyProgress(); }
+        else window.Cloud.save(window.CloudBridge.localData());
+      },
+      (err) => console.warn("Progress snapshot error:", err.message)
+    ));
+    unsubs.push(userRef.collection("settings").doc("main").onSnapshot(
+      (snap) => {
+        if (snap.exists) weekTarget = snap.data().weekTarget || 150;
+        applyProgress();
+      },
+      (err) => console.warn("Settings snapshot error:", err.message)
+    ));
   }
 
-  auth.onAuthStateChanged((user) => {
+  auth.onAuthStateChanged(async (user) => {
     currentUser = user;
     if (user) {
-      setChip(user.email);
-      hideOverlay();
-      watch(user.uid);
-      if (window.AdminPanel) window.AdminPanel.refreshAccess();
+      try {
+        await ensureUserRecord(user);
+        setChip(user.email);
+        hideOverlay();
+        watch(user.uid);
+        if (window.AdminPanel) window.AdminPanel.refreshAccess();
+      } catch (error) {
+        console.warn("Account setup failed:", error.message);
+        showError("Could not load your PathPilot data. Please try again.");
+        showOverlay();
+      }
     } else {
-      if (unsub) { unsub(); unsub = null; }
+      unsubs.forEach((unsubscribe) => unsubscribe());
+      unsubs = [];
       currentRole = "user";
       window.CloudBridge.applyRemote(null); // clear UI for the next user
       if (window.PathProfile) window.PathProfile.apply(null); // clear personalization

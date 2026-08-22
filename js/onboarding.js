@@ -206,8 +206,10 @@
   function validateStep() {
     if (step === 0 && !draft.fullName.trim()) return "Please enter your name.";
     if (step === 2) {
-      if (!Number.isFinite(draft.learnStartMin) || !Number.isFinite(draft.learnEndMin) || draft.learnEndMin <= draft.learnStartMin)
-        return "Set a valid learning window (end after start).";
+      if (!Number.isFinite(draft.workStartMin) || !Number.isFinite(draft.workEndMin) || draft.workEndMin <= draft.workStartMin)
+        return "Set valid work hours (end after start).";
+      if (!Number.isFinite(draft.learnStartMin) || !Number.isFinite(draft.learnEndMin) || draft.learnEndMin - draft.learnStartMin < 40)
+        return "Set a learning window of at least 40 minutes.";
     }
     return null;
   }

@@ -85,26 +85,6 @@
     const h12 = h % 12 || 12;
     return `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
   }
-  function shortRange(a, b) { // "12:00–1:00" style without am/pm noise
-    const f = (x) => { const h = Math.floor(x / 60) % 24, m = x % 60; return `${h % 12 || 12}:${String(m).padStart(2, "0")}`; };
-    return `${f(a)}–${f(b)}`;
-  }
-
-  // Build the day's blocks from a learning window using the DAILY templates.
-  function buildSchedule(startMin, endMin) {
-    const total = Math.max(30, endMin - startMin);
-    const ratios = DAILY.map((d) => parseInt(d.dur));      // template minutes as weights
-    const sum = ratios.reduce((a, b) => a + b, 0);
-    let cursor = startMin;
-    return DAILY.map((tpl, i) => {
-      let dur = i === DAILY.length - 1 ? endMin - cursor : Math.round((total * ratios[i]) / sum / 5) * 5;
-      dur = Math.max(10, dur);
-      const s = cursor, e = Math.min(endMin, cursor + dur);
-      cursor = e;
-      return { ...tpl, startMin: s, endMin: e, time: shortRange(s, e), dur: `${e - s} min` };
-    });
-  }
-
   // Active learning window (from profile, else default noon–3pm).
   function learnWindow() {
     if (profile && Number.isFinite(profile.learnStartMin) && Number.isFinite(profile.learnEndMin) && profile.learnEndMin > profile.learnStartMin) {
@@ -113,14 +93,14 @@
     return [12 * 60, 15 * 60];
   }
 
-  let SCHEDULE = buildSchedule(...learnWindow());
+  let SCHEDULE = PathCore.buildSchedule(DAILY, ...learnWindow());
 
   // Bridge used by onboarding.js / auth.js to apply a saved or new profile.
   window.PathProfile = {
     apply(p, opts) {
       profile = p || null;
       try { localStorage.setItem(PROFILE_CACHE, JSON.stringify(profile)); } catch {}
-      SCHEDULE = buildSchedule(...learnWindow());
+      SCHEDULE = PathCore.buildSchedule(DAILY, ...learnWindow());
       setGoalRoadmap();
       renderDaily();
       applyGreeting();
@@ -481,19 +461,10 @@
   }
 
   function computeState() {
-    // Count only tasks belonging to the active goal's roadmap.
-    const activeIds = new Set(TRACKER.flatMap((p) => p.tasks.map((t) => t.id)));
-    const total = TRACKER.reduce((n, p) => n + p.tasks.length, 0);
-    const doneCount = [...done].filter((id) => activeIds.has(id)).length;
-    const xp = doneCount * XP_PER_TASK;
-    const pct = total ? Math.round((doneCount / total) * 100) : 0;
-    const phase = {};
-    TRACKER.forEach((p) => {
-      const c = p.tasks.filter((t) => done.has(t.id)).length;
-      phase[p.id] = p.tasks.length && c === p.tasks.length ? 1 : 0;
-    });
-    const streak = getStreak().count;
-    return { done: doneCount, xp, pct, phase, streak };
+    return {
+      ...PathCore.computeProgress(TRACKER, done, XP_PER_TASK),
+      streak: getStreak().count,
+    };
   }
 
   function rankFor(pct) {

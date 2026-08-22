@@ -2,7 +2,7 @@
 ### Product Requirements & Architecture Blueprint
 
 > **Working product name:** PathPilot
-> **One-liner:** An AI platform that turns each user's schedule, skills, and career goal into a personalized, self-adapting learning roadmap and timetable — from beginner to job-ready.
+> **One-liner:** A platform that turns each user's schedule, skills, and career goal into personalized roadmap templates and timetables today, with constraint-based adaptive planning on the product roadmap.
 > **Author role context:** Senior PM · SaaS Architect · UX Designer · Solution Architect
 > **Status:** v1.0 blueprint · **Date:** 2026-08-21
 
