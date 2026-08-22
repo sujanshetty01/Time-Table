@@ -576,20 +576,99 @@ const ROADMAPS = {
   "backend-engineer": BACKEND_ENGINEER,
 };
 
+const LEGACY_TASK_KEY_ORDER = Object.freeze({
+  "cloud-architect:Azure": Object.freeze({
+    p1: "p1-m1-study|p1-m1-lab-93ad0627|p1-m1-lab-7bf07d46|p1-m1-lab-1e73eac1|p1-m1-lab-d821dd14|p1-m1-lab-89c95a52|p1-m1-lab-8e7637bb|p1-m1-deliverable|p1-m2-study|p1-m2-lab-75d5a986|p1-m2-lab-382fbd0c|p1-m2-lab-c1cd1797|p1-m2-lab-c0dfa56e|p1-m2-lab-7d785bdf|p1-m2-lab-38e422ae|p1-m2-deliverable|p1-m3-study|p1-m3-lab-c503f12b|p1-m3-lab-539611aa|p1-m3-deliverable".split("|"),
+    p2: "p2-m4-study|p2-m4-lab-50b66cd4|p2-m4-lab-d149dc50|p2-m4-lab-7b7ce728|p2-m4-lab-4e7f1e62|p2-m4-deliverable|p2-m5-study|p2-m5-lab-a3934b83|p2-m5-lab-7ab8154e|p2-m5-lab-4a70990a|p2-m5-lab-d9c27d5c|p2-m5-deliverable|p2-m6-study|p2-m6-lab-222451c8|p2-m6-lab-b6eb55b2|p2-m6-lab-b230751c|p2-m6-deliverable".split("|"),
+    p3: "p3-m7-study|p3-m7-lab-58670e0f|p3-m7-lab-06267ab2|p3-m7-lab-0b22adaf|p3-m7-deliverable|p3-m8-study|p3-m8-lab-e66583b5|p3-m8-lab-f8e888f7|p3-m8-deliverable|p3-m9-study|p3-m9-lab-20d06bfe|p3-m9-lab-0f946f01|p3-m9-lab-f63b4b82|p3-m9-deliverable".split("|"),
+    p4: "p4-m10-study|p4-m10-lab-13cdcb1d|p4-m10-lab-564a94c0|p4-m10-lab-396ea4d9|p4-m10-lab-a778d4e6|p4-m10-deliverable|p4-m11-study|p4-m11-lab-403507d2|p4-m11-lab-afe7369a|p4-m11-deliverable|p4-m12-study|p4-m12-lab-c06db04f|p4-m12-lab-12b3efdc|p4-m12-lab-c547dad9|p4-m12-lab-6f3e9fcc|p4-m12-deliverable".split("|"),
+  }),
+  "cloud-architect:AWS": Object.freeze({
+    p1: "p1-m1-study|p1-m1-lab-3b7736cd|p1-m1-lab-c66460b1|p1-m1-lab-06a80483|p1-m1-deliverable|p1-m2-study|p1-m2-lab-7cf1eb31|p1-m2-lab-670647b1|p1-m2-lab-91de55fa|p1-m2-deliverable|p1-m3-study|p1-m3-lab-6d4fa802|p1-m3-lab-e7db5b13|p1-m3-lab-abd512f2|p1-m3-deliverable".split("|"),
+    p2: "p2-m4-study|p2-m4-lab-028365be|p2-m4-lab-b0fe304f|p2-m4-lab-e958ec7e|p2-m4-deliverable|p2-m5-study|p2-m5-lab-cd350153|p2-m5-lab-3c96c870|p2-m5-lab-1d8a1979|p2-m5-deliverable|p2-m6-study|p2-m6-lab-895850e0|p2-m6-lab-7d492f13|p2-m6-lab-6c57e62e|p2-m6-deliverable".split("|"),
+    p3: "p3-m7-study|p3-m7-lab-267f7d61|p3-m7-lab-85e8a16b|p3-m7-lab-35b4368d|p3-m7-deliverable|p3-m8-study|p3-m8-lab-18a8417f|p3-m8-lab-e3528660|p3-m8-lab-39b84bd3|p3-m8-deliverable|p3-m9-study|p3-m9-lab-3e45e524|p3-m9-lab-a4366865|p3-m9-lab-ac0d1fe4|p3-m9-deliverable".split("|"),
+    p4: "p4-m10-study|p4-m10-lab-af0b8377|p4-m10-lab-36beae42|p4-m10-lab-b141aa7b|p4-m10-deliverable|p4-m11-study|p4-m11-lab-c64cdfe5|p4-m11-lab-9263c53e|p4-m11-lab-930e34f5|p4-m11-deliverable|p4-m12-study|p4-m12-lab-807f0abc|p4-m12-lab-89fda38c|p4-m12-lab-803d22e0|p4-m12-deliverable".split("|"),
+  }),
+  "ai-engineer": Object.freeze({
+    p1: "p1-m1-study|p1-m1-lab-905c8301|p1-m1-lab-ef6e7a58|p1-m1-lab-e62f5d85|p1-m1-deliverable|p1-m2-study|p1-m2-lab-2fdca65e|p1-m2-lab-c61b5242|p1-m2-lab-445bf0aa|p1-m2-deliverable|p1-m3-study|p1-m3-lab-c519f145|p1-m3-lab-55889e21|p1-m3-lab-c6d3b031|p1-m3-deliverable".split("|"),
+    p2: "p2-m4-study|p2-m4-lab-5c3a1d83|p2-m4-lab-0b211a4e|p2-m4-lab-706eb599|p2-m4-deliverable|p2-m5-study|p2-m5-lab-39dc0d5c|p2-m5-lab-7b2f790f|p2-m5-lab-88c7482b|p2-m5-deliverable|p2-m6-study|p2-m6-lab-32bf1d26|p2-m6-lab-bfc6f64c|p2-m6-lab-0c3db33a|p2-m6-deliverable".split("|"),
+    p3: "p3-m7-study|p3-m7-lab-84be325f|p3-m7-lab-2ed706ce|p3-m7-lab-1a1604a9|p3-m7-deliverable|p3-m8-study|p3-m8-lab-7251abc1|p3-m8-lab-03804414|p3-m8-lab-6ad0b812|p3-m8-deliverable|p3-m9-study|p3-m9-lab-7be4ae24|p3-m9-lab-68146e4d|p3-m9-lab-c4e2d52a|p3-m9-deliverable".split("|"),
+    p4: "p4-m10-study|p4-m10-lab-9d544c26|p4-m10-lab-8f5b753b|p4-m10-lab-d6c743d8|p4-m10-deliverable|p4-m11-study|p4-m11-lab-fccfcc7e|p4-m11-lab-4dbc5a47|p4-m11-lab-1d48007d|p4-m11-deliverable|p4-m12-study|p4-m12-lab-d68d90f6|p4-m12-lab-80762b9c|p4-m12-lab-1b1b24a7|p4-m12-deliverable".split("|"),
+  }),
+  "devops-engineer": Object.freeze({
+    p1: "p1-m1-study|p1-m1-lab-52610113|p1-m1-lab-ec21cb47|p1-m1-lab-f9147cca|p1-m1-deliverable|p1-m2-study|p1-m2-lab-33f59586|p1-m2-lab-3ff12c9e|p1-m2-lab-95bcb44a|p1-m2-deliverable|p1-m3-study|p1-m3-lab-ec158bad|p1-m3-lab-4dce049b|p1-m3-lab-b451f110|p1-m3-deliverable".split("|"),
+    p2: "p2-m4-study|p2-m4-lab-5f8d29ce|p2-m4-lab-0c3536e4|p2-m4-lab-44ca0f33|p2-m4-deliverable|p2-m5-study|p2-m5-lab-3bade94b|p2-m5-lab-a18227ae|p2-m5-lab-526ad52b|p2-m5-deliverable|p2-m6-study|p2-m6-lab-301dafdd|p2-m6-lab-a227e14a|p2-m6-lab-737afb2b|p2-m6-deliverable".split("|"),
+    p3: "p3-m7-study|p3-m7-lab-f1858146|p3-m7-lab-5d390cf0|p3-m7-lab-4eaed5d4|p3-m7-deliverable|p3-m8-study|p3-m8-lab-14a4d8ba|p3-m8-lab-5a648d41|p3-m8-lab-35b4368d|p3-m8-deliverable|p3-m9-study|p3-m9-lab-cd5236e9|p3-m9-lab-1939f2b8|p3-m9-lab-1d94dc3f|p3-m9-deliverable".split("|"),
+    p4: "p4-m10-study|p4-m10-lab-b0c7d29c|p4-m10-lab-93d6b46c|p4-m10-lab-764d0ec9|p4-m10-deliverable|p4-m11-study|p4-m11-lab-4b85be9e|p4-m11-lab-68e3eceb|p4-m11-lab-59e76c36|p4-m11-deliverable|p4-m12-study|p4-m12-lab-122c0a36|p4-m12-lab-57c965df|p4-m12-lab-803d22e0|p4-m12-deliverable".split("|"),
+  }),
+  "data-engineer": Object.freeze({
+    p1: "p1-m1-study|p1-m1-lab-71ee022a|p1-m1-lab-18b6c44f|p1-m1-lab-f0255c5c|p1-m1-deliverable|p1-m2-study|p1-m2-lab-09f40fd7|p1-m2-lab-772a2820|p1-m2-lab-27218734|p1-m2-deliverable|p1-m3-study|p1-m3-lab-f2134bac|p1-m3-lab-9b504657|p1-m3-lab-8d193a92|p1-m3-deliverable".split("|"),
+    p2: "p2-m4-study|p2-m4-lab-e25e5b62|p2-m4-lab-649432b6|p2-m4-lab-01adb05a|p2-m4-deliverable|p2-m5-study|p2-m5-lab-535837ed|p2-m5-lab-2df1cd2e|p2-m5-lab-6603e8d5|p2-m5-deliverable|p2-m6-study|p2-m6-lab-bf2dad6f|p2-m6-lab-93eec53e|p2-m6-lab-0a388a63|p2-m6-deliverable".split("|"),
+    p3: "p3-m7-study|p3-m7-lab-75c14e3e|p3-m7-lab-7f102c83|p3-m7-lab-1b027639|p3-m7-deliverable|p3-m8-study|p3-m8-lab-bb4c1389|p3-m8-lab-26db6b6a|p3-m8-lab-3235ebe1|p3-m8-deliverable|p3-m9-study|p3-m9-lab-1dc38cf8|p3-m9-lab-416d2945|p3-m9-lab-f7538e03|p3-m9-deliverable".split("|"),
+    p4: "p4-m10-study|p4-m10-lab-5d6334f5|p4-m10-lab-675988bd|p4-m10-lab-c8d24271|p4-m10-deliverable|p4-m11-study|p4-m11-lab-6117443e|p4-m11-lab-95394159|p4-m11-lab-b914c50b|p4-m11-deliverable|p4-m12-study|p4-m12-lab-e4b5bdde|p4-m12-lab-57c965df|p4-m12-lab-803d22e0|p4-m12-deliverable".split("|"),
+  }),
+  "cybersecurity-engineer": Object.freeze({
+    p1: "p1-m1-study|p1-m1-lab-c32d1a63|p1-m1-lab-3bf4abd0|p1-m1-lab-9af34c96|p1-m1-deliverable|p1-m2-study|p1-m2-lab-30384a61|p1-m2-lab-175895e1|p1-m2-lab-7d576632|p1-m2-deliverable|p1-m3-study|p1-m3-lab-32445851|p1-m3-lab-8958e980|p1-m3-lab-6ca4f452|p1-m3-deliverable".split("|"),
+    p2: "p2-m4-study|p2-m4-lab-b2d8520a|p2-m4-lab-57ce6863|p2-m4-lab-aa13a46f|p2-m4-deliverable|p2-m5-study|p2-m5-lab-77dff674|p2-m5-lab-54ac4339|p2-m5-lab-136647cf|p2-m5-deliverable|p2-m6-study|p2-m6-lab-64a3e139|p2-m6-lab-5e6e0e9c|p2-m6-lab-fbb1834b|p2-m6-deliverable".split("|"),
+    p3: "p3-m7-study|p3-m7-lab-9ba17050|p3-m7-lab-ccd560c8|p3-m7-lab-6d8d576a|p3-m7-deliverable|p3-m8-study|p3-m8-lab-c6b4d8df|p3-m8-lab-004191b3|p3-m8-lab-e675a126|p3-m8-deliverable|p3-m9-study|p3-m9-lab-fbef0a68|p3-m9-lab-10bec258|p3-m9-lab-c623a6a5|p3-m9-deliverable".split("|"),
+    p4: "p4-m10-study|p4-m10-lab-137bbb57|p4-m10-lab-9467fac0|p4-m10-lab-c36544b8|p4-m10-deliverable|p4-m11-study|p4-m11-lab-2eedbec9|p4-m11-lab-f5f92922|p4-m11-lab-1ab9fd88|p4-m11-deliverable|p4-m12-study|p4-m12-lab-1c523735|p4-m12-lab-d7400fc9|p4-m12-lab-803d22e0|p4-m12-deliverable".split("|"),
+  }),
+  "backend-engineer": Object.freeze({
+    p1: "p1-m1-study|p1-m1-lab-1338960c|p1-m1-lab-6539123f|p1-m1-lab-8cfb0b5e|p1-m1-deliverable|p1-m2-study|p1-m2-lab-af179a57|p1-m2-lab-4abebbc8|p1-m2-lab-3d5d9d3e|p1-m2-deliverable|p1-m3-study|p1-m3-lab-af7a9a5f|p1-m3-lab-61d746c3|p1-m3-lab-38fe2a69|p1-m3-deliverable".split("|"),
+    p2: "p2-m4-study|p2-m4-lab-5ea55760|p2-m4-lab-c0b77ef4|p2-m4-lab-29c422f2|p2-m4-deliverable|p2-m5-study|p2-m5-lab-4690929e|p2-m5-lab-7d69abb3|p2-m5-lab-ac64b937|p2-m5-deliverable|p2-m6-study|p2-m6-lab-b0e4bda1|p2-m6-lab-2e34fd7e|p2-m6-lab-0486002d|p2-m6-deliverable".split("|"),
+    p3: "p3-m7-study|p3-m7-lab-52d86e48|p3-m7-lab-a11ae7b0|p3-m7-lab-1d5f3fee|p3-m7-deliverable|p3-m8-study|p3-m8-lab-8b8556bc|p3-m8-lab-e1efe1e2|p3-m8-lab-ebdcf1b8|p3-m8-deliverable|p3-m9-study|p3-m9-lab-4cb56d25|p3-m9-lab-4a15db1b|p3-m9-lab-59ace853|p3-m9-deliverable".split("|"),
+    p4: "p4-m10-study|p4-m10-lab-4ad331f9|p4-m10-lab-dc1598a7|p4-m10-lab-0c9b4757|p4-m10-deliverable|p4-m11-study|p4-m11-lab-aaa7ad4b|p4-m11-lab-74331034|p4-m11-lab-93c9dc75|p4-m11-deliverable|p4-m12-study|p4-m12-lab-d2f33ade|p4-m12-lab-57c965df|p4-m12-lab-803d22e0|p4-m12-deliverable".split("|"),
+  }),
+});
+
+function legacyTaskIds(templateKey, prefix) {
+  const phases = LEGACY_TASK_KEY_ORDER[templateKey] || {};
+  return Object.fromEntries(
+    Object.entries(phases).flatMap(([phaseId, keys]) =>
+      keys.map((key, index) => [key, `${prefix}${phaseId}-${index}`]),
+    ),
+  );
+}
+
+function resolveRoadmap(goalKey, cloud) {
+  const resolvedGoal = ROADMAPS[goalKey] ? goalKey : "cloud-architect";
+  const entry = ROADMAPS[resolvedGoal];
+  const requestedCloud = cloud || entry.default;
+  const resolvedCloud = entry.variants && entry.variants[requestedCloud]
+    ? requestedCloud
+    : entry.default;
+  const roadmap = entry.variants ? entry.variants[resolvedCloud] : entry;
+  let prefix = "";
+  const isAzureArch = resolvedGoal === "cloud-architect" && requestedCloud === "Azure";
+  if (!isAzureArch) prefix = resolvedGoal + (entry.variants ? "-" + requestedCloud : "") + ":";
+  const templateKey = entry.variants ? `${resolvedGoal}:${resolvedCloud}` : resolvedGoal;
+  return {
+    careerGoalKey: resolvedGoal,
+    cloud: requestedCloud,
+    templateId: templateKey,
+    phases: roadmap.phases,
+    milestones: roadmap.milestones,
+    resources: roadmap.resources,
+    tracker: buildTracker(roadmap.phases, prefix, legacyTaskIds(templateKey, prefix)),
+  };
+}
+
 // Swap the active roadmap (mutates PHASES/MILESTONES/RESOURCES/TRACKER from data.js).
 function setActiveRoadmap(goalKey, cloud) {
-  const entry = ROADMAPS[goalKey] || ROADMAPS["cloud-architect"];
-  const rm = entry.variants ? (entry.variants[cloud] || entry.variants[entry.default]) : entry;
-  PHASES = rm.phases;
-  MILESTONES = rm.milestones;
-  RESOURCES = rm.resources;
-  // Keep Azure Cloud Architect on legacy (unprefixed) IDs so existing progress is preserved.
-  let prefix = "";
-  const isAzureArch = goalKey === "cloud-architect" && (!cloud || cloud === "Azure");
-  if (!isAzureArch) prefix = goalKey + (entry.variants ? "-" + (cloud || entry.default) : "") + ":";
-  TRACKER = buildTracker(PHASES, prefix);
+  const roadmap = resolveRoadmap(goalKey, cloud);
+  PHASES = roadmap.phases;
+  MILESTONES = roadmap.milestones;
+  RESOURCES = roadmap.resources;
+  TRACKER = roadmap.tracker;
   return { PHASES, MILESTONES, RESOURCES, TRACKER };
 }
+
+window.PathRoadmaps = {
+  current() {
+    return { phases: PHASES, milestones: MILESTONES, resources: RESOURCES, tracker: TRACKER };
+  },
+  resolve: resolveRoadmap,
+};
 
 /* ===================== AI Coach content (interview Qs + project ideas) ===================== */
 const COACH_CONTENT = {

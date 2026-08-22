@@ -23,3 +23,27 @@ test("sign-in shell has accessible structure and no serious axe violations", asy
   );
   expect(blocking).toEqual([]);
 });
+
+test("browser builds the active versioned plan model", async ({ page }) => {
+  await page.goto("/");
+
+  const model = await page.evaluate(() => {
+    const roadmap = globalThis.PathRoadmaps.current();
+    const snapshot = globalThis.PathCore.buildPlanSnapshot({
+      careerGoalKey: "cloud-architect",
+      cloud: "Azure",
+      tracker: roadmap.tracker,
+    });
+    return {
+      planId: snapshot.planId,
+      taskCount: snapshot.tasks.length,
+      sessionCount: snapshot.sessions.length,
+      rollbackAvailable: typeof globalThis.PathPlan.rollback === "function",
+    };
+  });
+
+  expect(model.planId).toBe("plan-cloud-architect-azure");
+  expect(model.taskCount).toBeGreaterThan(0);
+  expect(model.sessionCount).toBe(model.taskCount);
+  expect(model.rollbackAvailable).toBe(true);
+});

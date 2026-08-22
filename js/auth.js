@@ -115,7 +115,7 @@
       batch.set(userRef.collection("settings").doc("main"), {
         weekTarget: clean.weekTarget,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      });
+      }, { merge: true });
       batch.commit().catch((e) => console.warn("Cloud save failed:", e.message));
     },
     saveProfile(profile) {
@@ -127,13 +127,9 @@
         ...clean,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       });
-      batch.set(userRef.collection("plans").doc("active"), {
-        careerGoalKey: clean.careerGoalKey,
-        cloud: clean.cloud,
-        templateVersion: 1,
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      });
-      batch.commit().catch((e) => console.warn("Profile save failed:", e.message));
+      batch.commit()
+        .then(() => queuePlanWrite(clean, "profile-change"))
+        .catch((e) => console.warn("Profile save failed:", e.message));
     },
   };
 
@@ -206,6 +202,262 @@
     };
   }
 
+  let planWriteQueue = Promise.resolve();
+  function queuePlanWrite(profile, reason) {
+    planWriteQueue = planWriteQueue
+      .catch(() => {})
+      .then(() => ensurePlanModel(profile, reason));
+    return planWriteQueue;
+  }
+
+  function roadmapForProfile(profile) {
+    const roadmaps = window.PathRoadmaps;
+    const roadmap = roadmaps && typeof roadmaps.resolve === "function"
+      ? roadmaps.resolve(profile.careerGoalKey, profile.cloud)
+      : roadmaps && roadmaps.current();
+    return roadmap && Array.isArray(roadmap.tracker)
+      ? roadmap
+      : {
+          templateId: `${profile.careerGoalKey}:${profile.cloud}`,
+          tracker: [],
+        };
+  }
+
+  function writeRevisionChunks(batch, planRef, version, now) {
+    const revisionRef = planRef.collection("revisions").doc(version.revision.revisionId);
+    batch.set(revisionRef, { ...version.revision, createdAt: now });
+    version.chunks.forEach((chunk) => {
+      batch.set(revisionRef.collection("chunks").doc(chunk.chunkId), {
+        ...chunk,
+        createdAt: now,
+      });
+    });
+  }
+
+  function writeMaterializedPlan(
+    batch,
+    planRef,
+    version,
+    existingTasks,
+    existingSessions,
+    now,
+  ) {
+    version.chunks.forEach((chunk) => {
+      const definitions = window.PathCore.expandRevisionChunk(chunk);
+      definitions.tasks.forEach((task, definitionIndex) => {
+        const existing = existingTasks.get(task.taskId);
+        batch.set(planRef.collection("tasks").doc(task.taskId), {
+          ...task,
+          activeRevisionId: version.revision.revisionId,
+          definitionChunkId: chunk.chunkId,
+          definitionIndex,
+          firstRevisionId: existing
+            ? existing.firstRevisionId
+            : version.revision.revisionId,
+          createdAt: existing ? existing.createdAt : now,
+          updatedAt: now,
+        });
+      });
+      definitions.sessions.forEach((session, definitionIndex) => {
+        const existing = existingSessions.get(session.sessionId);
+        batch.set(planRef.collection("sessions").doc(session.sessionId), {
+          ...session,
+          activeRevisionId: version.revision.revisionId,
+          definitionChunkId: chunk.chunkId,
+          definitionIndex,
+          firstRevisionId: existing
+            ? existing.firstRevisionId
+            : version.revision.revisionId,
+          createdAt: existing ? existing.createdAt : now,
+          updatedAt: now,
+        });
+      });
+    });
+  }
+
+  async function ensurePlanModel(profile, requestedReason) {
+    if (!currentUser || !window.PathCore) return null;
+    const cleanProfile = normalizeProfile(profile);
+    const roadmap = roadmapForProfile(cleanProfile);
+    const snapshot = window.PathCore.buildPlanSnapshot({
+      careerGoalKey: cleanProfile.careerGoalKey,
+      cloud: cleanProfile.cloud,
+      templateId: roadmap.templateId,
+      templateVersion: 1,
+      tracker: roadmap.tracker,
+    });
+    const userRef = db.collection("users").doc(currentUser.uid);
+    const planRef = userRef.collection("plans").doc(snapshot.planId);
+    const settingsRef = userRef.collection("settings").doc("main");
+    const progressRef = userRef.collection("taskProgress").doc("main");
+    const [planSnap, legacySnap, settingsSnap, progressSnap, tasksSnap, sessionsSnap] = await Promise.all([
+      planRef.get(),
+      userRef.collection("plans").doc("active").get(),
+      settingsRef.get(),
+      progressRef.get(),
+      planRef.collection("tasks").get(),
+      planRef.collection("sessions").get(),
+    ]);
+    const localProgress = normalizeProgress(window.CloudBridge.localData());
+    const storedProgress = progressSnap.exists
+      ? normalizeProgress(progressSnap.data())
+      : localProgress;
+    const weekTarget = settingsSnap.exists
+      ? clampInt(settingsSnap.data().weekTarget, 10, 10000, localProgress.weekTarget)
+      : localProgress.weekTarget;
+
+    const storedPlan = planSnap.exists ? planSnap.data() : null;
+    const preserveRollback = storedPlan
+      && storedPlan.migrationSource === "rollback"
+      && requestedReason !== "profile-change";
+    if (storedPlan && (storedPlan.sourceHash === snapshot.sourceHash || preserveRollback)) {
+      await settingsRef.set({
+        weekTarget,
+        activePlanId: snapshot.planId,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+      return snapshot.planId;
+    }
+
+    const previousPlan = storedPlan;
+    const hasLegacyPointer = legacySnap.exists
+      && !(settingsSnap.exists && settingsSnap.data().activePlanId);
+    const reason = previousPlan
+      ? "template-update"
+      : hasLegacyPointer
+        ? "legacy-migration"
+        : requestedReason === "profile-change"
+          ? "initial-generation"
+          : requestedReason;
+    const migrationSource = previousPlan
+      ? "template-update"
+      : hasLegacyPointer
+        ? "legacy-active"
+        : "new-plan";
+    const existingTasks = new Map(
+      tasksSnap.docs.map((item) => [item.id, item.data()]),
+    );
+    const existingSessions = new Map(
+      sessionsSnap.docs.map((item) => [item.id, item.data()]),
+    );
+    const revisionSnapshot = window.PathCore.preserveSessionState(
+      snapshot,
+      existingSessions,
+    );
+    const version = window.PathCore.createPlanRevision(
+      revisionSnapshot,
+      previousPlan,
+      storedProgress.done,
+      reason,
+    );
+    const now = firebase.firestore.FieldValue.serverTimestamp();
+    const batch = db.batch();
+
+    batch.set(planRef, {
+      ...version.plan,
+      migrationSource,
+      createdAt: previousPlan && previousPlan.createdAt ? previousPlan.createdAt : now,
+      updatedAt: now,
+    });
+    writeRevisionChunks(batch, planRef, version, now);
+    writeMaterializedPlan(
+      batch,
+      planRef,
+      version,
+      existingTasks,
+      existingSessions,
+      now,
+    );
+    batch.set(settingsRef, {
+      weekTarget,
+      activePlanId: snapshot.planId,
+      updatedAt: now,
+    }, { merge: true });
+    await batch.commit();
+    return snapshot.planId;
+  }
+
+  async function rollbackPlan(revisionId) {
+    if (!currentUser || !window.PathCore) throw new Error("Sign in before restoring a plan.");
+    const userRef = db.collection("users").doc(currentUser.uid);
+    const settingsSnap = await userRef.collection("settings").doc("main").get();
+    const planId = settingsSnap.exists ? settingsSnap.data().activePlanId : null;
+    if (!planId) throw new Error("No active plan is available.");
+    const planRef = userRef.collection("plans").doc(planId);
+    const targetRef = planRef.collection("revisions").doc(revisionId);
+    const [
+      planSnap,
+      targetSnap,
+      targetChunksSnap,
+      progressSnap,
+      tasksSnap,
+      sessionsSnap,
+    ] = await Promise.all([
+      planRef.get(),
+      targetRef.get(),
+      targetRef.collection("chunks").orderBy("ordinal").get(),
+      userRef.collection("taskProgress").doc("main").get(),
+      planRef.collection("tasks").get(),
+      planRef.collection("sessions").get(),
+    ]);
+    if (!planSnap.exists || !targetSnap.exists) throw new Error("Plan revision not found.");
+    const completedIds = progressSnap.exists
+      ? normalizeProgress(progressSnap.data()).done
+      : normalizeProgress(window.CloudBridge.localData()).done;
+    const version = window.PathCore.createRollbackRevision(
+      planSnap.data(),
+      targetSnap.data(),
+      targetChunksSnap.docs.map((item) => item.data()),
+      completedIds,
+    );
+    const now = firebase.firestore.FieldValue.serverTimestamp();
+    const batch = db.batch();
+    batch.set(planRef, {
+      schemaVersion: version.plan.schemaVersion,
+      planId: version.plan.planId,
+      templateId: version.plan.templateId,
+      templateVersion: version.plan.templateVersion,
+      careerGoalKey: version.plan.careerGoalKey,
+      cloud: version.plan.cloud,
+      activeRevisionId: version.plan.activeRevisionId,
+      latestRevisionNumber: version.plan.latestRevisionNumber,
+      status: version.plan.status,
+      sourceHash: version.plan.sourceHash,
+      migrationSource: "rollback",
+      createdAt: planSnap.data().createdAt,
+      updatedAt: now,
+    });
+    const existingTasks = new Map(tasksSnap.docs.map((item) => [item.id, item.data()]));
+    const existingSessions = new Map(sessionsSnap.docs.map((item) => [item.id, item.data()]));
+    writeRevisionChunks(batch, planRef, version, now);
+    writeMaterializedPlan(
+      batch,
+      planRef,
+      version,
+      existingTasks,
+      existingSessions,
+      now,
+    );
+    await batch.commit();
+    return version.revision.revisionId;
+  }
+
+  window.PathPlan = {
+    ensure: (profile) => queuePlanWrite(profile, "profile-change"),
+    rollback: rollbackPlan,
+    async revisions() {
+      if (!currentUser) return [];
+      const settings = await db.collection("users").doc(currentUser.uid)
+        .collection("settings").doc("main").get();
+      const planId = settings.exists ? settings.data().activePlanId : null;
+      if (!planId) return [];
+      const snap = await db.collection("users").doc(currentUser.uid)
+        .collection("plans").doc(planId).collection("revisions")
+        .orderBy("revisionNumber", "desc").get();
+      return snap.docs.map((item) => item.data());
+    },
+  };
+
   async function ensureUserRecord(user) {
     const userRef = db.collection("users").doc(user.uid);
     const snap = await userRef.get();
@@ -237,12 +489,6 @@
       });
       if (normalizedProfile) {
         batch.set(userRef.collection("profiles").doc("main"), { ...normalizedProfile, updatedAt: now });
-        batch.set(userRef.collection("plans").doc("active"), {
-          careerGoalKey: normalizedProfile.careerGoalKey,
-          cloud: normalizedProfile.cloud,
-          templateVersion: 1,
-          updatedAt: now,
-        });
       }
       batch.set(userRef.collection("taskProgress").doc("main"), {
         done: normalizedProgress.done,
@@ -286,6 +532,8 @@
           delete data.updatedAt;
           window.PathProfile.apply(data, { save: false });
           profileApplied = true;
+          queuePlanWrite(data, "legacy-migration")
+            .catch((err) => console.warn("Plan migration failed:", err.message));
         } else if (!profileApplied && window.Onboarding) {
           window.Onboarding.open(null, { first: true });
         }

@@ -233,6 +233,10 @@ audit_logs(id, actor_id, action, entity, entity_id, ip, ua, created_at)
 ai_jobs(id, user_id, type[generate|replan|coach], status, input_hash, output_ref, latency_ms, created_at)
 ```
 
+### 3.3 Current Firestore plan model
+
+The deployed prototype uses a versioned plan aggregate with deterministic plan, task, and session IDs; explicit template mapping; append-only revisions; dependency edges; and progress-preserving migration from the legacy `plans/active` pointer. See [PLAN_MODEL.md](PLAN_MODEL.md) for the implemented document paths, security invariants, migration process, rollback behavior, and boundary before constraint-based scheduling.
+
 **Design notes**
 - `roadmaps.version` + `roadmap_items.state` enable **non-destructive re-planning**: on re-gen, copy `done` items forward, re-solve only `locked/active`.
 - JSONB (`meta_jsonb`, `spec_jsonb`) gives flexibility without schema churn.

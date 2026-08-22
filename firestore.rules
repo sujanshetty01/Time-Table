@@ -126,7 +126,7 @@ service cloud.firestore {
         && data.onboardedAt is string && data.onboardedAt.size() <= 40
         && data.updatedAt is timestamp;
     }
-    function validPlan(data) {
+    function validLegacyPlan(data) {
       return data.keys().hasAll(['careerGoalKey', 'cloud', 'templateVersion', 'updatedAt'])
         && data.keys().hasOnly(['careerGoalKey', 'cloud', 'templateVersion', 'updatedAt'])
         && data.careerGoalKey in [
@@ -135,6 +135,344 @@ service cloud.firestore {
         ]
         && data.cloud in ['Azure', 'AWS', 'GCP']
         && data.templateVersion is int && data.templateVersion >= 1
+        && data.updatedAt is timestamp;
+    }
+    function validPlan(planId, data) {
+      return data.keys().hasAll([
+          'schemaVersion', 'planId', 'templateId', 'templateVersion',
+          'careerGoalKey', 'cloud', 'activeRevisionId',
+          'latestRevisionNumber', 'status', 'sourceHash',
+          'migrationSource', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'schemaVersion', 'planId', 'templateId', 'templateVersion',
+          'careerGoalKey', 'cloud', 'activeRevisionId',
+          'latestRevisionNumber', 'status', 'sourceHash',
+          'migrationSource', 'createdAt', 'updatedAt'
+        ])
+        && data.schemaVersion == 2
+        && data.planId == planId
+        && data.planId is string && data.planId.size() > 0 && data.planId.size() <= 128
+        && data.templateId is string && data.templateId.size() > 0 && data.templateId.size() <= 128
+        && data.templateVersion is int && data.templateVersion >= 1
+        && data.careerGoalKey in [
+          'cloud-architect', 'ai-engineer', 'devops-engineer',
+          'data-engineer', 'cybersecurity-engineer', 'backend-engineer'
+        ]
+        && data.cloud in ['Azure', 'AWS', 'GCP']
+        && data.activeRevisionId is string && data.activeRevisionId.size() <= 32
+        && data.latestRevisionNumber is int
+        && data.latestRevisionNumber >= 1 && data.latestRevisionNumber <= 10000
+        && data.status in ['active', 'archived']
+        && data.sourceHash is string && data.sourceHash.size() > 0 && data.sourceHash.size() <= 64
+        && data.migrationSource in ['new-plan', 'legacy-active', 'template-update', 'rollback']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+    function validRevision(planId, revisionId, data) {
+      return data.keys().hasAll([
+          'planId', 'revisionId', 'revisionNumber', 'previousRevisionId',
+          'restoredRevisionId', 'reason', 'templateId', 'templateVersion',
+          'sourceHash', 'taskIds', 'sessionIds', 'chunkIds',
+          'preservedCompletedTaskIds', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'planId', 'revisionId', 'revisionNumber', 'previousRevisionId',
+          'restoredRevisionId', 'reason', 'templateId', 'templateVersion',
+          'sourceHash', 'taskIds', 'sessionIds', 'chunkIds',
+          'preservedCompletedTaskIds', 'createdAt'
+        ])
+        && data.planId == planId
+        && data.revisionId == revisionId
+        && data.revisionNumber is int
+        && data.revisionNumber >= 1 && data.revisionNumber <= 10000
+        && ((data.revisionNumber == 1 && data.previousRevisionId == null)
+          || (data.revisionNumber > 1
+            && data.previousRevisionId is string
+            && data.previousRevisionId.size() <= 32))
+        && data.reason in [
+          'initial-generation', 'legacy-migration', 'profile-change',
+          'template-update', 'rollback'
+        ]
+        && ((data.reason == 'rollback'
+            && data.revisionNumber > 1
+            && data.restoredRevisionId is string
+            && data.restoredRevisionId.size() <= 32)
+          || (data.reason != 'rollback' && data.restoredRevisionId == null))
+        && data.templateId is string && data.templateId.size() <= 128
+        && data.templateVersion is int && data.templateVersion >= 1
+        && data.sourceHash is string && data.sourceHash.size() <= 64
+        && data.taskIds is list
+        && data.taskIds.size() > 0 && data.taskIds.size() <= 72
+        && data.taskIds.toSet().size() == data.taskIds.size()
+        && data.sessionIds is list
+        && data.sessionIds.size() == data.taskIds.size()
+        && data.sessionIds.toSet().size() == data.sessionIds.size()
+        && data.chunkIds == [
+          'chunk-000', 'chunk-001', 'chunk-002', 'chunk-003',
+          'chunk-004', 'chunk-005', 'chunk-006', 'chunk-007',
+          'chunk-008'
+        ]
+        && data.preservedCompletedTaskIds is list
+        && data.preservedCompletedTaskIds.size() <= 72
+        && data.taskIds.toSet().hasAll(data.preservedCompletedTaskIds.toSet())
+        && data.createdAt is timestamp;
+    }
+    function chunkMetadataMatches(planId, revision, chunkId, ordinal, data) {
+      return data.planId == planId
+        && data.revisionId == revision.revisionId
+        && data.chunkId == chunkId
+        && data.ordinal == ordinal
+        && data.sourceHash == revision.sourceHash;
+    }
+    function rollbackTargetMatches(uid, planId, revision) {
+      let target = get(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(revision.restoredRevisionId)).data;
+      return revision.reason != 'rollback'
+        || (target.planId == planId
+          && target.revisionId == revision.restoredRevisionId
+          && target.revisionNumber < revision.revisionNumber
+          && target.templateId == revision.templateId
+          && target.templateVersion == revision.templateVersion
+          && target.sourceHash == revision.sourceHash
+          && target.taskIds == revision.taskIds
+          && target.sessionIds == revision.sessionIds
+          && target.chunkIds == revision.chunkIds);
+    }
+    function activeRevisionMatches(uid, planId, data, previousRevisionId) {
+      let revision = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(data.activeRevisionId)).data;
+      let chunk0 = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(data.activeRevisionId)/chunks/chunk-000).data;
+      let chunk1 = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(data.activeRevisionId)/chunks/chunk-001).data;
+      let chunk2 = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(data.activeRevisionId)/chunks/chunk-002).data;
+      let chunk3 = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(data.activeRevisionId)/chunks/chunk-003).data;
+      let chunk4 = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(data.activeRevisionId)/chunks/chunk-004).data;
+      let chunk5 = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(data.activeRevisionId)/chunks/chunk-005).data;
+      let chunk6 = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(data.activeRevisionId)/chunks/chunk-006).data;
+      let chunk7 = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(data.activeRevisionId)/chunks/chunk-007).data;
+      let chunk8 = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(data.activeRevisionId)/chunks/chunk-008).data;
+      return revision.planId == planId
+        && revision.revisionId == data.activeRevisionId
+        && revision.revisionNumber == data.latestRevisionNumber
+        && revision.previousRevisionId == previousRevisionId
+        && revision.sourceHash == data.sourceHash
+        && chunkMetadataMatches(planId, revision, 'chunk-000', 0, chunk0)
+        && chunkMetadataMatches(planId, revision, 'chunk-001', 1, chunk1)
+        && chunkMetadataMatches(planId, revision, 'chunk-002', 2, chunk2)
+        && chunkMetadataMatches(planId, revision, 'chunk-003', 3, chunk3)
+        && chunkMetadataMatches(planId, revision, 'chunk-004', 4, chunk4)
+        && chunkMetadataMatches(planId, revision, 'chunk-005', 5, chunk5)
+        && chunkMetadataMatches(planId, revision, 'chunk-006', 6, chunk6)
+        && chunkMetadataMatches(planId, revision, 'chunk-007', 7, chunk7)
+        && chunkMetadataMatches(planId, revision, 'chunk-008', 8, chunk8);
+    }
+    function planActivatesRevision(uid, planId, revisionId, data) {
+      let plan = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)).data;
+      return plan.activeRevisionId == revisionId
+        && plan.latestRevisionNumber == data.revisionNumber
+        && plan.sourceHash == data.sourceHash;
+    }
+    function validChunkEntry(data, index, revision) {
+      let order = data.ordinal * 8 + index;
+      return data.taskIds[index] is string
+        && data.taskIds[index].size() > 0 && data.taskIds[index].size() <= 256
+        && data.taskIds[index] == revision.taskIds[order]
+        && data.templateTaskIds[index] is string
+        && data.templateTaskIds[index].size() <= 256
+        && data.titles[index] is string
+        && data.titles[index].size() > 0 && data.titles[index].size() <= 500
+        && data.phaseIds[index] is string && data.phaseIds[index].size() <= 80
+        && data.phaseTitles[index] is string && data.phaseTitles[index].size() <= 160
+        && ((order == 0 && data.dependencyIds[index] == null)
+          || (order > 0 && data.dependencyIds[index] == revision.taskIds[order - 1]))
+        && data.estimatedMinutes[index] is int
+        && data.estimatedMinutes[index] >= 10
+        && data.estimatedMinutes[index] <= 1440
+        && data.sessionIds[index] is string
+        && data.sessionIds[index] == revision.sessionIds[order]
+        && data.sessionIds[index] == data.taskIds[index] + '::1'
+        && data.statuses[index] in ['unscheduled', 'scheduled', 'completed', 'skipped']
+        && data.locks[index] is bool
+        && (data.scheduledDates[index] == null
+          || (data.scheduledDates[index] is string
+            && data.scheduledDates[index].size() == 10))
+        && (data.startMinutes[index] == null
+          || (data.startMinutes[index] is int
+            && data.startMinutes[index] >= 0
+            && data.startMinutes[index] < 1440))
+        && data.durationMinutes[index] is int
+        && data.durationMinutes[index] >= 10
+        && data.durationMinutes[index] <= 1440;
+    }
+    function validChunkSize(ordinal, size, revisionSize) {
+      return (revisionSize >= (ordinal + 1) * 8 && size == 8)
+        || (revisionSize > ordinal * 8
+          && revisionSize < (ordinal + 1) * 8
+          && size == revisionSize - ordinal * 8)
+        || (revisionSize <= ordinal * 8 && size == 0);
+    }
+    function chunkRestoresTarget(uid, planId, revision, chunkId, data) {
+      let target = get(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(revision.restoredRevisionId)/chunks/$(chunkId)).data;
+      return data.diff(target).affectedKeys().hasOnly(['revisionId', 'createdAt']);
+    }
+    function validChunkEntries(data, revision) {
+      return (data.taskIds.size() <= 0 || validChunkEntry(data, 0, revision))
+        && (data.taskIds.size() <= 1 || validChunkEntry(data, 1, revision))
+        && (data.taskIds.size() <= 2 || validChunkEntry(data, 2, revision))
+        && (data.taskIds.size() <= 3 || validChunkEntry(data, 3, revision))
+        && (data.taskIds.size() <= 4 || validChunkEntry(data, 4, revision))
+        && (data.taskIds.size() <= 5 || validChunkEntry(data, 5, revision))
+        && (data.taskIds.size() <= 6 || validChunkEntry(data, 6, revision))
+        && (data.taskIds.size() <= 7 || validChunkEntry(data, 7, revision));
+    }
+    function validNewRevisionChunk(planId, revisionId, chunkId, data, revision) {
+      return data.keys().hasOnly([
+          'planId', 'revisionId', 'chunkId', 'ordinal', 'sourceHash',
+          'taskIds', 'templateTaskIds', 'titles', 'phaseIds', 'phaseTitles',
+          'dependencyIds', 'estimatedMinutes', 'sessionIds', 'statuses', 'locks',
+          'scheduledDates', 'startMinutes', 'durationMinutes', 'createdAt'
+        ])
+        && data.planId == planId
+        && data.revisionId == revisionId
+        && data.chunkId == chunkId
+        && data.ordinal is int && data.ordinal >= 0 && data.ordinal < 9
+        && ((data.ordinal == 0 && chunkId == 'chunk-000')
+          || (data.ordinal == 1 && chunkId == 'chunk-001')
+          || (data.ordinal == 2 && chunkId == 'chunk-002')
+          || (data.ordinal == 3 && chunkId == 'chunk-003')
+          || (data.ordinal == 4 && chunkId == 'chunk-004')
+          || (data.ordinal == 5 && chunkId == 'chunk-005')
+          || (data.ordinal == 6 && chunkId == 'chunk-006')
+          || (data.ordinal == 7 && chunkId == 'chunk-007')
+          || (data.ordinal == 8 && chunkId == 'chunk-008'))
+        && data.sourceHash == revision.sourceHash
+        && data.taskIds is list && data.taskIds.size() <= 8
+        && validChunkSize(data.ordinal, data.taskIds.size(), revision.taskIds.size())
+        && data.templateTaskIds is list && data.templateTaskIds.size() == data.taskIds.size()
+        && data.titles is list && data.titles.size() == data.taskIds.size()
+        && !data.titles.hasAny([''])
+        && data.phaseIds is list && data.phaseIds.size() == data.taskIds.size()
+        && data.phaseTitles is list && data.phaseTitles.size() == data.taskIds.size()
+        && data.dependencyIds is list && data.dependencyIds.size() == data.taskIds.size()
+        && data.estimatedMinutes is list && data.estimatedMinutes.size() == data.taskIds.size()
+        && data.sessionIds is list && data.sessionIds.size() == data.taskIds.size()
+        && data.statuses is list && data.statuses.size() == data.taskIds.size()
+        && data.locks is list && data.locks.size() == data.taskIds.size()
+        && data.scheduledDates is list && data.scheduledDates.size() == data.taskIds.size()
+        && data.startMinutes is list && data.startMinutes.size() == data.taskIds.size()
+        && data.durationMinutes is list && data.durationMinutes.size() == data.taskIds.size()
+        && validChunkEntries(data, revision)
+        && data.createdAt is timestamp;
+    }
+    function validRevisionChunk(uid, planId, revisionId, chunkId, data) {
+      let revision = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(revisionId)).data;
+      return revision.reason == 'rollback'
+        ? (data.revisionId == revisionId
+          && data.createdAt is timestamp
+          && chunkRestoresTarget(uid, planId, revision, chunkId, data))
+        : validNewRevisionChunk(planId, revisionId, chunkId, data, revision);
+    }
+    function taskMatchesActiveRevision(uid, planId, taskId, data) {
+      let plan = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)).data;
+      let revision = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(plan.activeRevisionId)).data;
+      let chunk = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(plan.activeRevisionId)/chunks/$(data.definitionChunkId)).data;
+      return data.activeRevisionId == plan.activeRevisionId
+        && data.definitionIndex >= 0 && data.definitionIndex < chunk.taskIds.size()
+        && chunk.revisionId == plan.activeRevisionId
+        && chunk.chunkId == data.definitionChunkId
+        && data.taskId == chunk.taskIds[data.definitionIndex]
+        && data.taskId == revision.taskIds[data.order]
+        && data.templateTaskId == chunk.templateTaskIds[data.definitionIndex]
+        && data.title == chunk.titles[data.definitionIndex]
+        && data.phaseId == chunk.phaseIds[data.definitionIndex]
+        && data.phaseTitle == chunk.phaseTitles[data.definitionIndex]
+        && data.order == chunk.ordinal * 8 + data.definitionIndex
+        && ((chunk.dependencyIds[data.definitionIndex] == null
+            && data.dependencyIds == [])
+          || data.dependencyIds == [chunk.dependencyIds[data.definitionIndex]])
+        && data.estimatedMinutes == chunk.estimatedMinutes[data.definitionIndex];
+    }
+    function sessionMatchesActiveRevision(uid, planId, sessionId, data) {
+      let plan = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)).data;
+      let chunk = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(plan.activeRevisionId)/chunks/$(data.definitionChunkId)).data;
+      return data.activeRevisionId == plan.activeRevisionId
+        && data.definitionIndex >= 0 && data.definitionIndex < chunk.sessionIds.size()
+        && chunk.revisionId == plan.activeRevisionId
+        && chunk.chunkId == data.definitionChunkId
+        && data.sessionId == chunk.sessionIds[data.definitionIndex]
+        && data.taskId == chunk.taskIds[data.definitionIndex]
+        && data.ordinal == 1;
+    }
+    function newSessionMatchesActiveRevision(uid, planId, sessionId, data) {
+      let plan = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)).data;
+      let chunk = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(plan.activeRevisionId)/chunks/$(data.definitionChunkId)).data;
+      return sessionMatchesActiveRevision(uid, planId, sessionId, data)
+        && data.status == chunk.statuses[data.definitionIndex]
+        && data.locked == chunk.locks[data.definitionIndex]
+        && data.scheduledDate == chunk.scheduledDates[data.definitionIndex]
+        && data.startMin == chunk.startMinutes[data.definitionIndex]
+        && data.durationMin == chunk.durationMinutes[data.definitionIndex];
+    }
+    function validTask(taskId, data) {
+      return data.keys().hasAll([
+          'taskId', 'templateTaskId', 'title', 'phaseId', 'phaseTitle',
+          'order', 'dependencyIds', 'estimatedMinutes', 'activeRevisionId',
+          'definitionChunkId', 'definitionIndex', 'firstRevisionId', 'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'taskId', 'templateTaskId', 'title', 'phaseId', 'phaseTitle',
+          'order', 'dependencyIds', 'estimatedMinutes', 'activeRevisionId',
+          'definitionChunkId', 'definitionIndex', 'firstRevisionId', 'createdAt',
+          'updatedAt'
+        ])
+        && data.taskId == taskId
+        && data.taskId is string && data.taskId.size() > 0 && data.taskId.size() <= 256
+        && data.templateTaskId is string && data.templateTaskId.size() <= 256
+        && data.title is string && data.title.size() > 0 && data.title.size() <= 500
+        && data.phaseId is string && data.phaseId.size() <= 80
+        && data.phaseTitle is string && data.phaseTitle.size() <= 160
+        && data.order is int && data.order >= 0 && data.order < 2000
+        && data.dependencyIds is list && data.dependencyIds.size() <= 20
+        && !data.dependencyIds.hasAny([data.taskId])
+        && data.estimatedMinutes is int
+        && data.estimatedMinutes >= 10 && data.estimatedMinutes <= 1440
+        && data.activeRevisionId is string && data.activeRevisionId.size() <= 32
+        && data.definitionChunkId is string && data.definitionChunkId.size() <= 16
+        && data.definitionIndex is int
+        && data.definitionIndex >= 0 && data.definitionIndex < 8
+        && data.firstRevisionId is string && data.firstRevisionId.size() <= 32
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+    function validSession(sessionId, data) {
+      return data.keys().hasAll([
+          'sessionId', 'taskId', 'ordinal', 'status', 'locked',
+          'scheduledDate', 'startMin', 'durationMin', 'activeRevisionId',
+          'definitionChunkId', 'definitionIndex', 'firstRevisionId', 'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'sessionId', 'taskId', 'ordinal', 'status', 'locked',
+          'scheduledDate', 'startMin', 'durationMin', 'activeRevisionId',
+          'definitionChunkId', 'definitionIndex', 'firstRevisionId', 'createdAt',
+          'updatedAt'
+        ])
+        && data.sessionId == sessionId
+        && data.sessionId is string && data.sessionId.size() > 0 && data.sessionId.size() <= 300
+        && data.taskId is string && data.taskId.size() <= 256
+        && data.ordinal is int && data.ordinal >= 1 && data.ordinal <= 100
+        && data.status in ['unscheduled', 'scheduled', 'completed', 'skipped']
+        && data.locked is bool
+        && (data.scheduledDate == null
+          || (data.scheduledDate is string && data.scheduledDate.size() == 10))
+        && (data.startMin == null
+          || (data.startMin is int && data.startMin >= 0 && data.startMin < 1440))
+        && data.durationMin is int && data.durationMin >= 10 && data.durationMin <= 1440
+        && data.activeRevisionId is string && data.activeRevisionId.size() <= 32
+        && data.definitionChunkId is string && data.definitionChunkId.size() <= 16
+        && data.definitionIndex is int
+        && data.definitionIndex >= 0 && data.definitionIndex < 8
+        && data.firstRevisionId is string && data.firstRevisionId.size() <= 32
+        && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
     function validProgress(data) {
@@ -153,8 +491,10 @@ service cloud.firestore {
     }
     function validSettings(data) {
       return data.keys().hasAll(['weekTarget', 'updatedAt'])
-        && data.keys().hasOnly(['weekTarget', 'updatedAt'])
+        && data.keys().hasOnly(['weekTarget', 'activePlanId', 'updatedAt'])
         && data.weekTarget is int && data.weekTarget >= 10 && data.weekTarget <= 10000
+        && (!('activePlanId' in data)
+          || (data.activePlanId is string && data.activePlanId.size() <= 128))
         && data.updatedAt is timestamp;
     }
 
@@ -190,8 +530,81 @@ service cloud.firestore {
       match /plans/{planId} {
         allow read: if canReadPrivate(uid);
         allow create, update: if planId == 'active' && isOwner(uid)
-          && validPlan(request.resource.data);
+          && validLegacyPlan(request.resource.data);
+        allow create: if planId != 'active' && isOwner(uid)
+          && validPlan(planId, request.resource.data)
+          && request.resource.data.latestRevisionNumber == 1
+          && activeRevisionMatches(uid, planId, request.resource.data, null);
+        allow update: if planId != 'active' && isOwner(uid)
+          && validPlan(planId, request.resource.data)
+          && request.resource.data.planId == resource.data.planId
+          && request.resource.data.schemaVersion == resource.data.schemaVersion
+          && request.resource.data.templateId == resource.data.templateId
+          && request.resource.data.careerGoalKey == resource.data.careerGoalKey
+          && request.resource.data.cloud == resource.data.cloud
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.activeRevisionId != resource.data.activeRevisionId
+          && request.resource.data.latestRevisionNumber == resource.data.latestRevisionNumber + 1
+          && activeRevisionMatches(
+            uid,
+            planId,
+            request.resource.data,
+            resource.data.activeRevisionId
+          );
         allow delete: if false;
+
+        match /revisions/{revisionId} {
+          allow read: if canReadPrivate(uid);
+          allow create: if isOwner(uid)
+            && validRevision(planId, revisionId, request.resource.data)
+            && planActivatesRevision(uid, planId, revisionId, request.resource.data)
+            && rollbackTargetMatches(uid, planId, request.resource.data);
+          allow update, delete: if false;
+
+          match /chunks/{chunkId} {
+            allow read: if canReadPrivate(uid);
+            allow create: if isOwner(uid)
+              && validRevisionChunk(
+                uid,
+                planId,
+                revisionId,
+                chunkId,
+                request.resource.data
+              );
+            allow update, delete: if false;
+          }
+        }
+
+        match /tasks/{taskId} {
+          allow read: if canReadPrivate(uid);
+          allow create: if isOwner(uid)
+            && validTask(taskId, request.resource.data)
+            && taskMatchesActiveRevision(uid, planId, taskId, request.resource.data);
+          allow update: if isOwner(uid)
+            && validTask(taskId, request.resource.data)
+            && taskMatchesActiveRevision(uid, planId, taskId, request.resource.data)
+            && request.resource.data.taskId == resource.data.taskId
+            && request.resource.data.templateTaskId == resource.data.templateTaskId
+            && request.resource.data.firstRevisionId == resource.data.firstRevisionId
+            && request.resource.data.createdAt == resource.data.createdAt;
+          allow delete: if false;
+        }
+
+        match /sessions/{sessionId} {
+          allow read: if canReadPrivate(uid);
+          allow create: if isOwner(uid)
+            && validSession(sessionId, request.resource.data)
+            && newSessionMatchesActiveRevision(uid, planId, sessionId, request.resource.data);
+          allow update: if isOwner(uid)
+            && validSession(sessionId, request.resource.data)
+            && sessionMatchesActiveRevision(uid, planId, sessionId, request.resource.data)
+            && request.resource.data.sessionId == resource.data.sessionId
+            && request.resource.data.taskId == resource.data.taskId
+            && request.resource.data.ordinal == resource.data.ordinal
+            && request.resource.data.firstRevisionId == resource.data.firstRevisionId
+            && request.resource.data.createdAt == resource.data.createdAt;
+          allow delete: if false;
+        }
       }
 
       match /taskProgress/{progressId} {

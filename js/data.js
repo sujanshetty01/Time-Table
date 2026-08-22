@@ -456,19 +456,122 @@ let RESOURCES = [
   { ico: "🛠️", title: "Tools", items: ["VS Code + Bicep extension", "Azure CLI & PowerShell", "Azure Cloud Shell", "Git & GitHub"] },
 ];
 
-/* Build trackable tasks per quarter from monthly plans (optionally namespaced by goal). */
-function buildTracker(phases, prefix) {
+/* Existing Azure progress uses positional IDs. This frozen alias table preserves them. */
+const AZURE_LEGACY_TASK_IDS = Object.freeze({
+  "p1-m1-study": "p1-0",
+  "p1-m1-lab-93ad0627": "p1-1",
+  "p1-m1-lab-7bf07d46": "p1-2",
+  "p1-m1-lab-1e73eac1": "p1-3",
+  "p1-m1-lab-d821dd14": "p1-4",
+  "p1-m1-lab-89c95a52": "p1-5",
+  "p1-m1-lab-8e7637bb": "p1-6",
+  "p1-m1-deliverable": "p1-7",
+  "p1-m2-study": "p1-8",
+  "p1-m2-lab-75d5a986": "p1-9",
+  "p1-m2-lab-382fbd0c": "p1-10",
+  "p1-m2-lab-c1cd1797": "p1-11",
+  "p1-m2-lab-c0dfa56e": "p1-12",
+  "p1-m2-lab-7d785bdf": "p1-13",
+  "p1-m2-lab-38e422ae": "p1-14",
+  "p1-m2-deliverable": "p1-15",
+  "p1-m3-study": "p1-16",
+  "p1-m3-lab-c503f12b": "p1-17",
+  "p1-m3-lab-539611aa": "p1-18",
+  "p1-m3-deliverable": "p1-19",
+  "p2-m4-study": "p2-0",
+  "p2-m4-lab-50b66cd4": "p2-1",
+  "p2-m4-lab-d149dc50": "p2-2",
+  "p2-m4-lab-7b7ce728": "p2-3",
+  "p2-m4-lab-4e7f1e62": "p2-4",
+  "p2-m4-deliverable": "p2-5",
+  "p2-m5-study": "p2-6",
+  "p2-m5-lab-a3934b83": "p2-7",
+  "p2-m5-lab-7ab8154e": "p2-8",
+  "p2-m5-lab-4a70990a": "p2-9",
+  "p2-m5-lab-d9c27d5c": "p2-10",
+  "p2-m5-deliverable": "p2-11",
+  "p2-m6-study": "p2-12",
+  "p2-m6-lab-222451c8": "p2-13",
+  "p2-m6-lab-b6eb55b2": "p2-14",
+  "p2-m6-lab-b230751c": "p2-15",
+  "p2-m6-deliverable": "p2-16",
+  "p3-m7-study": "p3-0",
+  "p3-m7-lab-58670e0f": "p3-1",
+  "p3-m7-lab-06267ab2": "p3-2",
+  "p3-m7-lab-0b22adaf": "p3-3",
+  "p3-m7-deliverable": "p3-4",
+  "p3-m8-study": "p3-5",
+  "p3-m8-lab-e66583b5": "p3-6",
+  "p3-m8-lab-f8e888f7": "p3-7",
+  "p3-m8-deliverable": "p3-8",
+  "p3-m9-study": "p3-9",
+  "p3-m9-lab-20d06bfe": "p3-10",
+  "p3-m9-lab-0f946f01": "p3-11",
+  "p3-m9-lab-f63b4b82": "p3-12",
+  "p3-m9-deliverable": "p3-13",
+  "p4-m10-study": "p4-0",
+  "p4-m10-lab-13cdcb1d": "p4-1",
+  "p4-m10-lab-564a94c0": "p4-2",
+  "p4-m10-lab-396ea4d9": "p4-3",
+  "p4-m10-lab-a778d4e6": "p4-4",
+  "p4-m10-deliverable": "p4-5",
+  "p4-m11-study": "p4-6",
+  "p4-m11-lab-403507d2": "p4-7",
+  "p4-m11-lab-afe7369a": "p4-8",
+  "p4-m11-deliverable": "p4-9",
+  "p4-m12-study": "p4-10",
+  "p4-m12-lab-c06db04f": "p4-11",
+  "p4-m12-lab-12b3efdc": "p4-12",
+  "p4-m12-lab-c547dad9": "p4-13",
+  "p4-m12-lab-6f3e9fcc": "p4-14",
+  "p4-m12-deliverable": "p4-15",
+});
+
+function trackerHash(value) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+function trackerItem(source, fallbackKey) {
+  if (source && typeof source === "object") {
+    return { key: String(source.id || fallbackKey), label: String(source.label) };
+  }
+  return { key: fallbackKey, label: String(source) };
+}
+
+/* Build trackable tasks with semantic IDs that survive insertion and reordering. */
+function buildTracker(phases, prefix, legacyTaskIds) {
   prefix = prefix || "";
-  return phases.map((p) => ({
-    id: p.id,
-    title: `${p.title} · ${p.months}`,
-    tasks: p.plan
-      .flatMap((m) => [
-        `📘 Study — Month ${m.n}: ${m.title}`,
-        ...m.hands,
-        `📦 ${m.deliverable}`,
-      ])
-      .map((label, i) => ({ id: `${prefix}${p.id}-${i}`, label })),
+  legacyTaskIds = legacyTaskIds || (!prefix ? AZURE_LEGACY_TASK_IDS : {});
+  return phases.map((phase) => ({
+    id: phase.id,
+    title: `${phase.title} · ${phase.months}`,
+    tasks: phase.plan.flatMap((month) => {
+      const base = `${phase.id}-m${month.n}`;
+      const study = trackerItem(
+        `📘 Study — Month ${month.n}: ${month.title}`,
+        `${base}-study`,
+      );
+      const labs = month.hands.map((source) => {
+        const label = String(
+          source && typeof source === "object" ? source.label : source,
+        );
+        return trackerItem(source, `${base}-lab-${trackerHash(label)}`);
+      });
+      const deliverable = trackerItem(
+        `📦 ${month.deliverable}`,
+        `${base}-deliverable`,
+      );
+      return [study, ...labs, deliverable].map(({ key, label }) => ({
+        id: legacyTaskIds[key] || `${prefix}${key}`,
+        templateTaskId: key,
+        label,
+      }));
+    }),
   }));
 }
 

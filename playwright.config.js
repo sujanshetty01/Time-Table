@@ -8,7 +8,7 @@ module.exports = defineConfig({
     headless: true,
   },
   webServer: {
-    command: "npx serve . --listen 4173 --no-clipboard",
+    command: "node tests/static-server.js",
     url: "http://127.0.0.1:4173",
     reuseExistingServer: !process.env.CI,
     timeout: 30_000,
