@@ -583,14 +583,64 @@ const ROADMAP_CLOUD_ARCHITECT_AZURE = { phases: PHASES, milestones: MILESTONES, 
 /* Gamification */
 const XP_PER_TASK = 10;
 
-// Rank tiers by % of overall completion.
-const RANKS = [
-  { min: 0,  name: "Azure Novice",        emoji: "🌱" },
-  { min: 15, name: "Azure Explorer",      emoji: "🧭" },
-  { min: 35, name: "Azure Administrator", emoji: "⚙️" },
-  { min: 60, name: "Azure Engineer",      emoji: "🚀" },
-  { min: 85, name: "Azure Architect",     emoji: "🏛️" },
+// Role-aware rank tiers by % of overall completion. The selected career goal,
+// not a cloud-provider default, determines the learner's progression language.
+const DEFAULT_RANKS = [
+  { min: 0,  name: "Learning Novice",      emoji: "🌱" },
+  { min: 15, name: "Skill Explorer",       emoji: "🧭" },
+  { min: 35, name: "Capability Builder",   emoji: "⚙️" },
+  { min: 60, name: "Job-Ready Practitioner", emoji: "🚀" },
+  { min: 85, name: "Domain Specialist",    emoji: "🏆" },
 ];
+
+const RANKS_BY_ROLE = {
+  "cloud-architect": [
+    { min: 0,  name: "Cloud Novice",       emoji: "🌱" },
+    { min: 15, name: "Cloud Explorer",     emoji: "🧭" },
+    { min: 35, name: "Cloud Builder",      emoji: "⚙️" },
+    { min: 60, name: "Cloud Engineer",     emoji: "🚀" },
+    { min: 85, name: "Cloud Architect",    emoji: "🏛️" },
+  ],
+  "ai-engineer": [
+    { min: 0,  name: "AI Novice",          emoji: "🌱" },
+    { min: 15, name: "AI Explorer",        emoji: "🧭" },
+    { min: 35, name: "Model Builder",      emoji: "🧠" },
+    { min: 60, name: "AI Engineer",        emoji: "🚀" },
+    { min: 85, name: "AI Specialist",      emoji: "✨" },
+  ],
+  "devops-engineer": [
+    { min: 0,  name: "DevOps Novice",      emoji: "🌱" },
+    { min: 15, name: "Automation Explorer", emoji: "🧭" },
+    { min: 35, name: "Delivery Builder",   emoji: "⚙️" },
+    { min: 60, name: "DevOps Engineer",    emoji: "🚀" },
+    { min: 85, name: "Platform Specialist", emoji: "🛠️" },
+  ],
+  "data-engineer": [
+    { min: 0,  name: "Data Novice",        emoji: "🌱" },
+    { min: 15, name: "Data Explorer",      emoji: "🧭" },
+    { min: 35, name: "Pipeline Builder",   emoji: "📊" },
+    { min: 60, name: "Data Engineer",      emoji: "🚀" },
+    { min: 85, name: "Data Specialist",    emoji: "🏆" },
+  ],
+  "cybersecurity-engineer": [
+    { min: 0,  name: "Security Novice",    emoji: "🌱" },
+    { min: 15, name: "Security Explorer",  emoji: "🧭" },
+    { min: 35, name: "Defense Builder",    emoji: "🛡️" },
+    { min: 60, name: "Security Engineer",  emoji: "🚀" },
+    { min: 85, name: "Security Specialist", emoji: "🔐" },
+  ],
+  "backend-engineer": [
+    { min: 0,  name: "Backend Novice",     emoji: "🌱" },
+    { min: 15, name: "API Explorer",       emoji: "🧭" },
+    { min: 35, name: "Service Builder",    emoji: "⚙️" },
+    { min: 60, name: "Backend Engineer",   emoji: "🚀" },
+    { min: 85, name: "Systems Specialist", emoji: "🏆" },
+  ],
+};
+
+function ranksForRole(careerGoalKey) {
+  return RANKS_BY_ROLE[careerGoalKey] || DEFAULT_RANKS;
+}
 
 // Level titles (level derived from XP).
 const LEVEL_TITLES = [
