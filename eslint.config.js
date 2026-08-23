@@ -2,7 +2,12 @@ const globals = require("globals");
 
 module.exports = [
   {
-    files: ["js/auth.js", "js/onboarding.js", "js/planner-core.js"],
+    files: [
+      "js/auth.js",
+      "js/onboarding.js",
+      "js/planner-core.js",
+      "js/planner-workspace.js",
+    ],
     languageOptions: {
       ecmaVersion: "latest",
       sourceType: "script",

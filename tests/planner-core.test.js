@@ -3,10 +3,13 @@ const assert = require("node:assert/strict");
 const {
   buildPlanSnapshot,
   buildSchedule,
+  buildIcsCalendar,
   computeProgress,
   createPlanRevision,
   createRollbackRevision,
   expandRevisionChunk,
+  normalizePlannerPreferences,
+  planConstraintSchedule,
   preserveSessionState,
   validateDependencyGraph,
 } = require("../js/planner-core");
@@ -334,5 +337,340 @@ describe("versioned plan model", () => {
         ]),
       /cycles/,
     );
+  });
+});
+
+describe("constraint planner", () => {
+  function planningFixture() {
+    const planningTracker = [
+      {
+        id: "foundation",
+        title: "Foundation",
+        tasks: [
+          { id: "backend-engineer:p1-0", label: "Learn APIs" },
+          { id: "backend-engineer:p1-1", label: "Build an API" },
+          { id: "backend-engineer:p1-2", label: "Document the API" },
+        ],
+      },
+    ];
+    const snapshot = buildPlanSnapshot({
+      careerGoalKey: "backend-engineer",
+      cloud: "AWS",
+      tracker: planningTracker,
+    });
+    return {
+      tasks: snapshot.tasks,
+      sessions: snapshot.sessions,
+      preferences: {
+        startDate: "2026-09-14",
+        deadline: "2026-09-21",
+        availableDays: [1, 2, 3, 4, 5],
+        startMin: 540,
+        endMin: 720,
+        dailyCapMinutes: 90,
+        weeklyCapMinutes: 180,
+      },
+      today: "2026-09-14",
+    };
+  }
+
+  test("honors dependencies, rest days, and workload caps", () => {
+    const result = planConstraintSchedule(planningFixture());
+
+    assert.deepEqual(
+      result.sessions.map(({ scheduledDate, startMin }) => ({
+        scheduledDate,
+        startMin,
+      })),
+      [
+        { scheduledDate: "2026-09-14", startMin: 540 },
+        { scheduledDate: "2026-09-14", startMin: 585 },
+        { scheduledDate: "2026-09-15", startMin: 540 },
+      ],
+    );
+    assert.equal(result.conflicts.length, 0);
+    assert.equal(result.summary.totalMinutes, 135);
+    assert.ok(
+      result.sessions.every((session) =>
+        session.explanation.includes("workload caps"),
+      ),
+    );
+  });
+
+  test("starts after the latest-finishing prerequisite", () => {
+    const fixture = planningFixture();
+    fixture.tasks[2] = {
+      ...fixture.tasks[2],
+      dependencyIds: [fixture.tasks[0].taskId, fixture.tasks[1].taskId],
+    };
+    fixture.sessions = fixture.sessions.map((session, index) =>
+      index < 2
+        ? {
+            ...session,
+            status: "scheduled",
+            locked: true,
+            scheduledDate: index === 0 ? "2026-09-15" : "2026-09-14",
+            startMin: index === 0 ? 585 : 540,
+          }
+        : session,
+    );
+
+    const result = planConstraintSchedule(fixture);
+    const dependent = result.sessions.find(
+      (session) => session.taskId === fixture.tasks[2].taskId,
+    );
+
+    assert.equal(dependent.scheduledDate, "2026-09-15");
+    assert.equal(dependent.startMin, 630);
+  });
+
+  test("schedules dependencies before dependents regardless of display order", () => {
+    const fixture = planningFixture();
+    fixture.tasks = [fixture.tasks[1], fixture.tasks[0], fixture.tasks[2]].map(
+      (task, order) => ({ ...task, order }),
+    );
+
+    const result = planConstraintSchedule(fixture);
+    const foundation = result.sessions.find(
+      (session) => session.taskId === fixture.tasks[1].taskId,
+    );
+    const dependent = result.sessions.find(
+      (session) => session.taskId === fixture.tasks[0].taskId,
+    );
+
+    assert.equal(result.conflicts.length, 0);
+    assert.ok(
+      foundation.scheduledDate < dependent.scheduledDate ||
+        foundation.startMin + foundation.durationMin <= dependent.startMin,
+    );
+  });
+
+  test("accepts midnight availability and preserves skipped sessions", () => {
+    const fixture = planningFixture();
+    fixture.preferences = normalizePlannerPreferences(
+      {
+        ...fixture.preferences,
+        startMin: 0,
+        endMin: 120,
+      },
+      fixture.today,
+    );
+    fixture.sessions[1] = {
+      ...fixture.sessions[1],
+      status: "skipped",
+    };
+
+    const result = planConstraintSchedule(fixture);
+    const first = result.sessions.find(
+      (session) => session.taskId === fixture.tasks[0].taskId,
+    );
+    const skipped = result.sessions.find(
+      (session) => session.taskId === fixture.tasks[1].taskId,
+    );
+
+    assert.equal(result.preferences.startMin, 0);
+    assert.equal(first.startMin, 0);
+    assert.equal(skipped.status, "skipped");
+    assert.equal(skipped.scheduledDate, null);
+    assert.deepEqual(
+      normalizePlannerPreferences(
+        {
+          ...fixture.preferences,
+          startMin: 1430,
+          endMin: 1440,
+          dailyCapMinutes: 10,
+          weeklyCapMinutes: 10,
+        },
+        fixture.today,
+      ),
+      {
+        ...fixture.preferences,
+        startMin: 1430,
+        endMin: 1440,
+        dailyCapMinutes: 10,
+        weeklyCapMinutes: 10,
+      },
+    );
+  });
+
+  test("preserves manual locks and recovers missed sessions", () => {
+    const fixture = planningFixture();
+    fixture.sessions = fixture.sessions.map((session, index) =>
+      index === 1
+        ? {
+            ...session,
+            status: "scheduled",
+            locked: true,
+            scheduledDate: "2026-09-16",
+            startMin: 600,
+          }
+        : index === 0
+          ? {
+              ...session,
+              status: "scheduled",
+              scheduledDate: "2026-09-10",
+              startMin: 540,
+            }
+          : session,
+    );
+
+    const result = planConstraintSchedule(fixture);
+    const locked = result.sessions.find((session) => session.locked);
+
+    assert.equal(locked.scheduledDate, "2026-09-16");
+    assert.match(locked.explanation, /locked/);
+    assert.deepEqual(result.recovery, [
+      {
+        taskId: fixture.tasks[0].taskId,
+        sessionId: fixture.sessions[0].sessionId,
+        fromDate: "2026-09-10",
+        toDate: "2026-09-14",
+        reason: "Recovered from 2026-09-10 into the earliest available slot.",
+      },
+    ]);
+  });
+
+  test("explains constraint violations caused by manual locks", () => {
+    const fixture = planningFixture();
+    fixture.sessions = fixture.sessions.map((session, index) => ({
+      ...session,
+      status: "scheduled",
+      locked: true,
+      scheduledDate: index === 0 ? "2026-09-19" : "2026-09-14",
+      startMin: index === 2 ? 600 : 585,
+    }));
+
+    const result = planConstraintSchedule(fixture);
+    const codes = result.conflicts.map((conflict) => conflict.code);
+
+    assert.ok(codes.includes("locked-rest-day"));
+    assert.ok(codes.includes("locked-overlap"));
+    assert.ok(codes.includes("locked-dependency-order"));
+    assert.equal(result.summary.locked, 3);
+  });
+
+  test("explains deadline and oversized-session conflicts", () => {
+    const noDays = planningFixture();
+    noDays.preferences.availableDays = [];
+    const deadlineResult = planConstraintSchedule(noDays);
+    assert.equal(deadlineResult.summary.scheduled, 0);
+    assert.equal(deadlineResult.conflicts[0].code, "deadline-capacity");
+    assert.match(deadlineResult.conflicts[0].reason, /before the deadline/);
+
+    const oversized = planningFixture();
+    oversized.sessions[0] = { ...oversized.sessions[0], durationMin: 120 };
+    const capResult = planConstraintSchedule(oversized);
+    assert.equal(capResult.conflicts[0].code, "session-exceeds-cap");
+    assert.match(capResult.conflicts[0].reason, /exceeds/);
+  });
+
+  test("uses the full supported horizon for weekly sessions", () => {
+    const fixture = planningFixture();
+    fixture.tasks = Array.from({ length: 72 }, (_, index) => ({
+      taskId: `task-${index}`,
+      order: index,
+      title: `Task ${index}`,
+      phaseTitle: "Long plan",
+      dependencyIds: index === 0 ? [] : [`task-${index - 1}`],
+      estimatedMinutes: 60,
+    }));
+    fixture.sessions = fixture.tasks.map((task) => ({
+      sessionId: `session-${task.taskId}`,
+      taskId: task.taskId,
+      status: "pending",
+      locked: false,
+      scheduledDate: null,
+      startMin: null,
+      durationMin: 60,
+    }));
+    fixture.preferences = {
+      ...fixture.preferences,
+      startDate: "2026-01-05",
+      deadline: "2027-06-01",
+      availableDays: [1],
+      startMin: 540,
+      endMin: 600,
+      dailyCapMinutes: 60,
+      weeklyCapMinutes: 60,
+    };
+    fixture.today = fixture.preferences.startDate;
+
+    const result = planConstraintSchedule(fixture);
+
+    assert.equal(result.summary.scheduled, 72);
+    assert.equal(result.conflicts.length, 0);
+    assert.equal(result.sessions.at(-1).scheduledDate, "2027-05-17");
+  });
+
+  test("exports only scheduled sessions to an ICS calendar", () => {
+    const fixture = planningFixture();
+    const result = planConstraintSchedule(fixture);
+    const calendar = buildIcsCalendar({
+      sessions: result.sessions,
+      tasks: fixture.tasks,
+      calendarName: "Backend plan",
+      generatedAt: new Date("2026-09-01T00:00:00.000Z"),
+    });
+
+    assert.match(calendar, /BEGIN:VCALENDAR\r\nVERSION:2.0/);
+    assert.match(calendar, /X-WR-CALNAME:Backend plan/);
+    assert.match(calendar, /DTSTART:20260914T090000/);
+    assert.match(calendar, /SUMMARY:Learn/);
+    assert.equal((calendar.match(/BEGIN:VEVENT/g) || []).length, 3);
+    assert.ok(calendar.endsWith("END:VCALENDAR\r\n"));
+  });
+
+  test("rolls an ICS end time at midnight into the next date", () => {
+    const fixture = planningFixture();
+    const calendar = buildIcsCalendar({
+      tasks: fixture.tasks,
+      sessions: [
+        {
+          ...fixture.sessions[0],
+          status: "scheduled",
+          scheduledDate: "2026-09-14",
+          startMin: 1380,
+          durationMin: 60,
+        },
+      ],
+      generatedAt: new Date("2026-09-01T00:00:00.000Z"),
+    });
+
+    assert.match(calendar, /DTSTART:20260914T230000/);
+    assert.match(calendar, /DTEND:20260915T000000/);
+    assert.doesNotMatch(calendar, /T240000/);
+  });
+
+  test("namespaces, escapes, and folds ICS content", () => {
+    const fixture = planningFixture();
+    const session = {
+      ...fixture.sessions[0],
+      status: "scheduled",
+      scheduledDate: "2026-09-14",
+      startMin: 540,
+      explanation: `First line\rSecond line\n${"résumé ".repeat(20)}`,
+    };
+    const first = buildIcsCalendar({
+      tasks: fixture.tasks,
+      sessions: [session],
+      calendarId: "account-a:plan-a",
+      generatedAt: new Date("2026-09-01T00:00:00.000Z"),
+    });
+    const second = buildIcsCalendar({
+      tasks: fixture.tasks,
+      sessions: [session],
+      calendarId: "account-b:plan-a",
+      generatedAt: new Date("2026-09-01T00:00:00.000Z"),
+    });
+    const uid = (calendar) => calendar.match(/^UID:(.+)$/m)[1];
+
+    assert.notEqual(uid(first), uid(second));
+    assert.doesNotMatch(first, /account-a/);
+    assert.match(first, /DESCRIPTION:First line\\nSecond line\\n/);
+    assert.ok(
+      first.split("\r\n").every((line) => Buffer.byteLength(line) <= 75),
+    );
+    assert.match(first, /\r\n /);
+    assert.doesNotMatch(first.replaceAll("\r\n", ""), /[\r\n]/);
   });
 });

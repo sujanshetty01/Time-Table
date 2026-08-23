@@ -155,6 +155,17 @@ const validSession = (overrides = {}) => ({
   ...overrides,
 });
 
+const validPlanner = (overrides = {}) => ({
+  startDate: "2026-09-14",
+  deadline: "2026-12-14",
+  availableDays: [1, 2, 3, 4, 5],
+  startMin: 720,
+  endMin: 900,
+  dailyCapMinutes: 180,
+  weeklyCapMinutes: 720,
+  ...overrides,
+});
+
 function writeVersion(
   batch,
   db,
@@ -234,10 +245,99 @@ describe("owner data validation", () => {
     batch.set(doc(db, "users/owner/settings/main"), {
       weekTarget: 150,
       activePlanId: PLAN_ID,
+      planner: validPlanner(),
+      plannerVersion: 0,
       updatedAt: serverTimestamp(),
     });
 
     await assertSucceeds(batch.commit());
+    const sessionRef = doc(
+      db,
+      `users/owner/plans/${PLAN_ID}/sessions/${SESSION_ID}`,
+    );
+    await assertSucceeds(
+      updateDoc(sessionRef, {
+        status: "scheduled",
+        locked: true,
+        scheduledDate: "2026-09-14",
+        startMin: 720,
+        updatedAt: serverTimestamp(),
+      }),
+    );
+    await assertFails(
+      updateDoc(sessionRef, {
+        durationMin: 0,
+        updatedAt: serverTimestamp(),
+      }),
+    );
+    await assertFails(
+      updateDoc(sessionRef, {
+        scheduledDate: null,
+        startMin: null,
+        updatedAt: serverTimestamp(),
+      }),
+    );
+    await assertFails(
+      updateDoc(sessionRef, {
+        scheduledDate: "2026/09/14",
+        startMin: 720,
+        updatedAt: serverTimestamp(),
+      }),
+    );
+    await assertFails(
+      updateDoc(sessionRef, {
+        scheduledDate: "2026-09-14",
+        startMin: 1400,
+        durationMin: 60,
+        updatedAt: serverTimestamp(),
+      }),
+    );
+    await assertFails(
+      setDoc(doc(db, "users/owner/settings/main"), {
+        weekTarget: 150,
+        activePlanId: PLAN_ID,
+        planner: validPlanner({ availableDays: [1, 7] }),
+        updatedAt: serverTimestamp(),
+      }),
+    );
+    await assertSucceeds(
+      setDoc(doc(db, "users/owner/settings/main"), {
+        weekTarget: 150,
+        activePlanId: PLAN_ID,
+        planner: validPlanner({
+          startMin: 1430,
+          endMin: 1440,
+          dailyCapMinutes: 10,
+          weeklyCapMinutes: 10,
+        }),
+        updatedAt: serverTimestamp(),
+      }),
+    );
+    await assertFails(
+      setDoc(doc(db, "users/owner/settings/main"), {
+        weekTarget: 150,
+        activePlanId: PLAN_ID,
+        planner: validPlanner({ startDate: "2026/09/14" }),
+        updatedAt: serverTimestamp(),
+      }),
+    );
+    await assertFails(
+      setDoc(doc(db, "users/owner/settings/main"), {
+        weekTarget: 150,
+        activePlanId: PLAN_ID,
+        planner: validPlanner({ deadline: "2026-9-30" }),
+        updatedAt: serverTimestamp(),
+      }),
+    );
+    await assertFails(
+      setDoc(doc(db, "users/owner/settings/main"), {
+        weekTarget: 150,
+        activePlanId: PLAN_ID,
+        planner: validPlanner(),
+        plannerVersion: -1,
+        updatedAt: serverTimestamp(),
+      }),
+    );
   });
 
   test("rejects extra root fields, role escalation, and malformed profile values", async () => {

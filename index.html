@@ -57,6 +57,7 @@
     </div>
     <nav class="nav">
       <a href="#overview" class="nav-link active"><span class="nav-ico">◉</span> Overview</a>
+      <a href="#planner" class="nav-link"><span class="nav-ico">▦</span> Planner</a>
       <a href="#daily" class="nav-link"><span class="nav-ico">◷</span> Daily Timetable</a>
       <a href="#weekly" class="nav-link"><span class="nav-ico">▤</span> Weekly Plan</a>
       <a href="#roadmap" class="nav-link"><span class="nav-ico">◆</span> 12-Month Roadmap</a>
@@ -201,6 +202,84 @@
           <h3>Measurable</h3>
           <p>Clear milestones at 3, 6, 9, and 12 months so you always know exactly where you stand.</p>
         </div>
+      </div>
+    </section>
+
+    <!-- ===================== CONSTRAINT PLANNER ===================== -->
+    <section id="planner" class="section planner-section">
+      <div class="section-head planner-heading">
+        <div>
+          <h2>Constraint Planner</h2>
+          <p>Turn your roadmap into a feasible calendar with clear tradeoffs.</p>
+        </div>
+        <div class="planner-actions">
+          <button class="planner-btn secondary" id="plannerRefresh" type="button">Refresh</button>
+          <button class="planner-btn secondary" id="plannerExport" type="button" disabled>Export calendar</button>
+          <button class="planner-btn primary" id="plannerBuild" type="submit" form="plannerForm" disabled>Build plan</button>
+        </div>
+      </div>
+
+      <form class="planner-controls" id="plannerForm">
+        <label class="planner-field">
+          <span>Start date</span>
+          <input id="plannerStartDate" type="date" required />
+        </label>
+        <label class="planner-field">
+          <span>Deadline</span>
+          <input id="plannerDeadline" type="date" required />
+        </label>
+        <label class="planner-field">
+          <span>Available from</span>
+          <input id="plannerStartTime" type="time" required />
+        </label>
+        <label class="planner-field">
+          <span>Available until</span>
+          <input id="plannerEndTime" type="time" required />
+        </label>
+        <label class="planner-field">
+          <span>Daily cap</span>
+          <span class="planner-input-unit"><input id="plannerDailyCap" type="number" min="10" max="1440" step="5" required /><small>min</small></span>
+        </label>
+        <label class="planner-field">
+          <span>Weekly cap</span>
+          <span class="planner-input-unit"><input id="plannerWeeklyCap" type="number" min="10" max="10080" step="5" required /><small>min</small></span>
+        </label>
+        <fieldset class="planner-days">
+          <legend>Available days</legend>
+          <div id="plannerDays">
+            <label><input type="checkbox" value="1" />Mon</label>
+            <label><input type="checkbox" value="2" />Tue</label>
+            <label><input type="checkbox" value="3" />Wed</label>
+            <label><input type="checkbox" value="4" />Thu</label>
+            <label><input type="checkbox" value="5" />Fri</label>
+            <label><input type="checkbox" value="6" />Sat</label>
+            <label><input type="checkbox" value="0" />Sun</label>
+          </div>
+        </fieldset>
+      </form>
+
+      <div class="planner-status" id="plannerStatus" role="status" aria-live="polite">Waiting for your active plan…</div>
+      <div class="planner-metrics" id="plannerMetrics"></div>
+
+      <div class="planner-layout">
+        <div class="planner-calendar-shell">
+          <div class="planner-calendar-head">
+            <button class="planner-icon-btn" id="plannerPrev" type="button" title="Previous two weeks" aria-label="Previous two weeks">←</button>
+            <strong id="plannerRange">Two-week schedule</strong>
+            <button class="planner-icon-btn" id="plannerNext" type="button" title="Next two weeks" aria-label="Next two weeks">→</button>
+          </div>
+          <div class="planner-board" id="plannerBoard" role="region" aria-labelledby="plannerRange"></div>
+        </div>
+        <aside class="planner-insights">
+          <section class="planner-insight">
+            <div class="planner-insight-head"><h3>Conflicts</h3><span id="plannerConflictCount">0</span></div>
+            <div id="plannerConflicts" class="planner-insight-list"></div>
+          </section>
+          <section class="planner-insight">
+            <div class="planner-insight-head"><h3>Recovery</h3><span id="plannerRecoveryCount">0</span></div>
+            <div id="plannerRecovery" class="planner-insight-list"></div>
+          </section>
+        </aside>
       </div>
     </section>
 
@@ -376,5 +455,6 @@
   <script src="js/onboarding.js"></script>
   <script src="js/admin.js"></script>
   <script src="js/auth.js"></script>
+  <script src="js/planner-workspace.js"></script>
 </body>
 </html>

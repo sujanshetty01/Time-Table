@@ -33,6 +33,7 @@
 
   let currentUser = null;
   let unsubs = [];
+  let authGeneration = 0;
 
   let currentRole = "user";
   function computeIsAdmin() { return currentRole === "admin"; }
@@ -120,15 +121,17 @@
     },
     saveProfile(profile) {
       if (!currentUser) return;
+      const uid = currentUser.uid;
+      const generation = authGeneration;
       const clean = normalizeProfile(profile);
-      const userRef = db.collection("users").doc(currentUser.uid);
+      const userRef = db.collection("users").doc(uid);
       const batch = db.batch();
       batch.set(userRef.collection("profiles").doc("main"), {
         ...clean,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       });
       batch.commit()
-        .then(() => queuePlanWrite(clean, "profile-change"))
+        .then(() => queuePlanWrite(clean, "profile-change", uid, generation))
         .catch((e) => console.warn("Profile save failed:", e.message));
     },
   };
@@ -203,11 +206,31 @@
   }
 
   let planWriteQueue = Promise.resolve();
-  function queuePlanWrite(profile, reason) {
+  function queuePlanWrite(
+    profile,
+    reason,
+    uid = currentUser?.uid,
+    generation = authGeneration,
+  ) {
     planWriteQueue = planWriteQueue
       .catch(() => {})
-      .then(() => ensurePlanModel(profile, reason));
+      .then(() => {
+        if (
+          !uid ||
+          generation !== authGeneration ||
+          currentUser?.uid !== uid
+        ) {
+          return null;
+        }
+        return ensurePlanModel(profile, reason, uid, generation);
+      });
     return planWriteQueue;
+  }
+
+  function announcePlan(planId) {
+    window.dispatchEvent(
+      new CustomEvent("pathpilot:plan-ready", { detail: { planId } }),
+    );
   }
 
   function roadmapForProfile(profile) {
@@ -275,8 +298,21 @@
     });
   }
 
-  async function ensurePlanModel(profile, requestedReason) {
-    if (!currentUser || !window.PathCore) return null;
+  async function ensurePlanModel(
+    profile,
+    requestedReason,
+    uid,
+    generation,
+    retryCount = 0,
+  ) {
+    if (
+      !window.PathCore ||
+      !uid ||
+      generation !== authGeneration ||
+      currentUser?.uid !== uid
+    ) {
+      return null;
+    }
     const cleanProfile = normalizeProfile(profile);
     const roadmap = roadmapForProfile(cleanProfile);
     const snapshot = window.PathCore.buildPlanSnapshot({
@@ -286,7 +322,7 @@
       templateVersion: 1,
       tracker: roadmap.tracker,
     });
-    const userRef = db.collection("users").doc(currentUser.uid);
+    const userRef = db.collection("users").doc(uid);
     const planRef = userRef.collection("plans").doc(snapshot.planId);
     const settingsRef = userRef.collection("settings").doc("main");
     const progressRef = userRef.collection("taskProgress").doc("main");
@@ -298,6 +334,7 @@
       planRef.collection("tasks").get(),
       planRef.collection("sessions").get(),
     ]);
+    if (generation !== authGeneration || currentUser?.uid !== uid) return null;
     const localProgress = normalizeProgress(window.CloudBridge.localData());
     const storedProgress = progressSnap.exists
       ? normalizeProgress(progressSnap.data())
@@ -305,6 +342,9 @@
     const weekTarget = settingsSnap.exists
       ? clampInt(settingsSnap.data().weekTarget, 10, 10000, localProgress.weekTarget)
       : localProgress.weekTarget;
+    const plannerVersion = settingsSnap.exists
+      ? clampInt(settingsSnap.data().plannerVersion, 0, 1000000, 0)
+      : 0;
 
     const storedPlan = planSnap.exists ? planSnap.data() : null;
     const preserveRollback = storedPlan
@@ -316,6 +356,9 @@
         activePlanId: snapshot.planId,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       }, { merge: true });
+      if (generation === authGeneration && currentUser?.uid === uid) {
+        announcePlan(snapshot.planId);
+      }
       return snapshot.planId;
     }
 
@@ -351,29 +394,83 @@
       reason,
     );
     const now = firebase.firestore.FieldValue.serverTimestamp();
-    const batch = db.batch();
+    if (generation !== authGeneration || currentUser?.uid !== uid) return null;
+    try {
+      await db.runTransaction(async (transaction) => {
+        const currentSettingsSnap = await transaction.get(settingsRef);
+        const currentPlanSnap = await transaction.get(planRef);
+        const currentPlannerVersion = currentSettingsSnap.exists
+          ? clampInt(
+              currentSettingsSnap.data().plannerVersion,
+              0,
+              1000000,
+              0,
+            )
+          : 0;
+        const currentPlan = currentPlanSnap.exists
+          ? currentPlanSnap.data()
+          : null;
+        const planChanged = previousPlan
+          ? !currentPlan ||
+            currentPlan.activeRevisionId !== previousPlan.activeRevisionId ||
+            currentPlan.latestRevisionNumber !==
+              previousPlan.latestRevisionNumber ||
+            currentPlan.sourceHash !== previousPlan.sourceHash
+          : currentPlan !== null;
+        if (currentPlannerVersion !== plannerVersion || planChanged) {
+          const conflict = new Error("Plan activation changed during preparation.");
+          conflict.code = "pathpilot/activation-conflict";
+          throw conflict;
+        }
 
-    batch.set(planRef, {
-      ...version.plan,
-      migrationSource,
-      createdAt: previousPlan && previousPlan.createdAt ? previousPlan.createdAt : now,
-      updatedAt: now,
-    });
-    writeRevisionChunks(batch, planRef, version, now);
-    writeMaterializedPlan(
-      batch,
-      planRef,
-      version,
-      existingTasks,
-      existingSessions,
-      now,
-    );
-    batch.set(settingsRef, {
-      weekTarget,
-      activePlanId: snapshot.planId,
-      updatedAt: now,
-    }, { merge: true });
-    await batch.commit();
+        transaction.set(planRef, {
+          ...version.plan,
+          migrationSource,
+          createdAt:
+            previousPlan && previousPlan.createdAt
+              ? previousPlan.createdAt
+              : now,
+          updatedAt: now,
+        });
+        writeRevisionChunks(transaction, planRef, version, now);
+        writeMaterializedPlan(
+          transaction,
+          planRef,
+          version,
+          existingTasks,
+          existingSessions,
+          now,
+        );
+        transaction.set(
+          settingsRef,
+          {
+            weekTarget,
+            activePlanId: snapshot.planId,
+            updatedAt: now,
+          },
+          { merge: true },
+        );
+      });
+    } catch (error) {
+      if (
+        error.code === "pathpilot/activation-conflict" &&
+        retryCount < 2 &&
+        generation === authGeneration &&
+        currentUser?.uid === uid
+      ) {
+        return ensurePlanModel(
+          profile,
+          requestedReason,
+          uid,
+          generation,
+          retryCount + 1,
+        );
+      }
+      throw error;
+    }
+    if (generation === authGeneration && currentUser?.uid === uid) {
+      announcePlan(snapshot.planId);
+    }
     return snapshot.planId;
   }
 
@@ -439,12 +536,115 @@
       now,
     );
     await batch.commit();
+    announcePlan(version.plan.planId);
     return version.revision.revisionId;
+  }
+
+  async function plannerWorkspace() {
+    if (!currentUser) throw new Error("Sign in to open your planner.");
+    const userRef = db.collection("users").doc(currentUser.uid);
+    const settingsSnap = await userRef.collection("settings").doc("main").get();
+    const settings = settingsSnap.exists ? settingsSnap.data() : {};
+    const planId = settings.activePlanId;
+    if (!planId) throw new Error("Generate your roadmap before opening the planner.");
+    const planRef = userRef.collection("plans").doc(planId);
+    const [planSnap, tasksSnap, sessionsSnap, progressSnap] = await Promise.all([
+      planRef.get(),
+      planRef.collection("tasks").orderBy("order").get(),
+      planRef.collection("sessions").get(),
+      userRef.collection("taskProgress").doc("main").get(),
+    ]);
+    if (!planSnap.exists) throw new Error("The active plan could not be loaded.");
+    const plan = planSnap.data();
+    return {
+      plan,
+      tasks: tasksSnap.docs
+        .map((item) => item.data())
+        .filter((task) => task.activeRevisionId === plan.activeRevisionId),
+      sessions: sessionsSnap.docs
+        .map((item) => item.data())
+        .filter((session) => session.activeRevisionId === plan.activeRevisionId),
+      completedTaskIds: progressSnap.exists
+        ? normalizeProgress(progressSnap.data()).done
+        : [],
+      preferences: settings.planner || null,
+      plannerVersion: clampInt(settings.plannerVersion, 0, 1000000, 0),
+    };
+  }
+
+  async function savePlannerSchedule({
+    planId,
+    activeRevisionId,
+    preferences,
+    sessions,
+    plannerVersion = 0,
+  }) {
+    if (!currentUser) throw new Error("Sign in to save your schedule.");
+    if (!planId || !activeRevisionId) {
+      throw new Error("The active plan revision is required.");
+    }
+    if (!Array.isArray(sessions) || sessions.length > 72) {
+      throw new RangeError("A schedule can contain at most 72 sessions.");
+    }
+    if (!Number.isInteger(plannerVersion) || plannerVersion < 0) {
+      throw new RangeError("The planner version is invalid.");
+    }
+    const planner = window.PathCore.normalizePlannerPreferences(
+      preferences,
+      new Date().toISOString().slice(0, 10),
+    );
+    const uid = currentUser.uid;
+    const userRef = db.collection("users").doc(uid);
+    const settingsRef = userRef.collection("settings").doc("main");
+    const planRef = userRef.collection("plans").doc(planId);
+    await db.runTransaction(async (transaction) => {
+      const settingsSnap = await transaction.get(settingsRef);
+      const planSnap = await transaction.get(planRef);
+      const activePlanId = settingsSnap.exists
+        ? settingsSnap.data().activePlanId
+        : null;
+      const currentPlannerVersion = settingsSnap.exists
+        ? clampInt(settingsSnap.data().plannerVersion, 0, 1000000, 0)
+        : 0;
+      if (activePlanId !== planId || !planSnap.exists) {
+        throw new Error("The active plan changed. Refresh the planner.");
+      }
+      if (planSnap.data().activeRevisionId !== activeRevisionId) {
+        throw new Error("The active plan revision changed. Refresh the planner.");
+      }
+      if (currentPlannerVersion !== plannerVersion) {
+        throw new Error(
+          "This schedule changed in another tab. Refresh the planner before saving.",
+        );
+      }
+      transaction.set(
+        settingsRef,
+        {
+          planner,
+          plannerVersion: currentPlannerVersion + 1,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      );
+      sessions.forEach((session) => {
+        transaction.update(planRef.collection("sessions").doc(session.sessionId), {
+          status: session.status,
+          locked: session.locked,
+          scheduledDate: session.scheduledDate,
+          startMin: session.startMin,
+          durationMin: session.durationMin,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        });
+      });
+    });
+    return { planner, plannerVersion: plannerVersion + 1 };
   }
 
   window.PathPlan = {
     ensure: (profile) => queuePlanWrite(profile, "profile-change"),
     rollback: rollbackPlan,
+    saveSchedule: savePlannerSchedule,
+    workspace: plannerWorkspace,
     async revisions() {
       if (!currentUser) return [];
       const settings = await db.collection("users").doc(currentUser.uid)
@@ -509,16 +709,18 @@
   }
 
   let profileApplied = false;
-  function watch(uid) {
+  function watch(uid, generation) {
     unsubs.forEach((unsubscribe) => unsubscribe());
     unsubs = [];
     profileApplied = false;
     let progress = null;
     let weekTarget = 150;
     const userRef = db.collection("users").doc(uid);
+    const isActive = () =>
+      generation === authGeneration && currentUser?.uid === uid;
     unsubs.push(userRef.onSnapshot(
       (snap) => {
-        if (!snap.exists) return;
+        if (!isActive() || !snap.exists) return;
         const data = snap.data();
         currentRole = data.role || "user";
         if (window.AdminPanel) window.AdminPanel.refreshAccess();
@@ -527,12 +729,13 @@
     ));
     unsubs.push(userRef.collection("profiles").doc("main").onSnapshot(
       (snap) => {
+        if (!isActive()) return;
         if (snap.exists && window.PathProfile) {
           const data = { ...snap.data() };
           delete data.updatedAt;
           window.PathProfile.apply(data, { save: false });
           profileApplied = true;
-          queuePlanWrite(data, "legacy-migration")
+          queuePlanWrite(data, "legacy-migration", uid, generation)
             .catch((err) => console.warn("Plan migration failed:", err.message));
         } else if (!profileApplied && window.Onboarding) {
           window.Onboarding.open(null, { first: true });
@@ -541,7 +744,7 @@
       (err) => console.warn("Profile snapshot error:", err.message)
     ));
     const applyProgress = () => {
-      if (!progress) return;
+      if (!isActive() || !progress) return;
       const combined = { ...progress, weekTarget };
       delete combined.updatedAt;
       if (JSON.stringify(combined) !== JSON.stringify(window.CloudBridge.localData())) {
@@ -550,6 +753,7 @@
     };
     unsubs.push(userRef.collection("taskProgress").doc("main").onSnapshot(
       (snap) => {
+        if (!isActive()) return;
         if (snap.exists) { progress = snap.data(); applyProgress(); }
         else window.Cloud.save(window.CloudBridge.localData());
       },
@@ -557,6 +761,7 @@
     ));
     unsubs.push(userRef.collection("settings").doc("main").onSnapshot(
       (snap) => {
+        if (!isActive()) return;
         if (snap.exists) weekTarget = snap.data().weekTarget || 150;
         applyProgress();
       },
@@ -565,27 +770,50 @@
   }
 
   auth.onAuthStateChanged(async (user) => {
+    const generation = ++authGeneration;
+    const previousUid = currentUser?.uid || null;
+    const nextUid = user?.uid || null;
+    unsubs.forEach((unsubscribe) => unsubscribe());
+    unsubs = [];
     currentUser = user;
+    if (previousUid !== nextUid) {
+      window.dispatchEvent(
+        new CustomEvent("pathpilot:account-changed", {
+          detail: { uid: nextUid },
+        }),
+      );
+    }
     if (user) {
       try {
         await ensureUserRecord(user);
+        if (
+          generation !== authGeneration ||
+          currentUser?.uid !== user.uid
+        ) {
+          return;
+        }
         setChip(user.email);
         hideOverlay();
-        watch(user.uid);
+        watch(user.uid, generation);
         if (window.AdminPanel) window.AdminPanel.refreshAccess();
       } catch (error) {
+        if (
+          generation !== authGeneration ||
+          currentUser?.uid !== user.uid
+        ) {
+          return;
+        }
         console.warn("Account setup failed:", error.message);
         showError("Could not load your PathPilot data. Please try again.");
         showOverlay();
       }
     } else {
-      unsubs.forEach((unsubscribe) => unsubscribe());
-      unsubs = [];
       currentRole = "user";
       window.CloudBridge.applyRemote(null); // clear UI for the next user
       if (window.PathProfile) window.PathProfile.apply(null); // clear personalization
       if (window.Onboarding) window.Onboarding.close();
       if (window.AdminPanel) window.AdminPanel.refreshAccess();
+      window.dispatchEvent(new CustomEvent("pathpilot:signed-out"));
       setChip(null);
       showOverlay();
     }

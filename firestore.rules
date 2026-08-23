@@ -370,7 +370,7 @@ service cloud.firestore {
           && chunkRestoresTarget(uid, planId, revision, chunkId, data))
         : validNewRevisionChunk(planId, revisionId, chunkId, data, revision);
     }
-    function taskMatchesActiveRevision(uid, planId, taskId, data) {
+    function taskMatchesActiveRevision(uid, planId, data) {
       let plan = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)).data;
       let revision = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(plan.activeRevisionId)).data;
       let chunk = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(plan.activeRevisionId)/chunks/$(data.definitionChunkId)).data;
@@ -390,7 +390,7 @@ service cloud.firestore {
           || data.dependencyIds == [chunk.dependencyIds[data.definitionIndex]])
         && data.estimatedMinutes == chunk.estimatedMinutes[data.definitionIndex];
     }
-    function sessionMatchesActiveRevision(uid, planId, sessionId, data) {
+    function sessionMatchesActiveRevision(uid, planId, data) {
       let plan = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)).data;
       let chunk = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(plan.activeRevisionId)/chunks/$(data.definitionChunkId)).data;
       return data.activeRevisionId == plan.activeRevisionId
@@ -401,10 +401,10 @@ service cloud.firestore {
         && data.taskId == chunk.taskIds[data.definitionIndex]
         && data.ordinal == 1;
     }
-    function newSessionMatchesActiveRevision(uid, planId, sessionId, data) {
+    function newSessionMatchesActiveRevision(uid, planId, data) {
       let plan = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)).data;
       let chunk = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(plan.activeRevisionId)/chunks/$(data.definitionChunkId)).data;
-      return sessionMatchesActiveRevision(uid, planId, sessionId, data)
+      return sessionMatchesActiveRevision(uid, planId, data)
         && data.status == chunk.statuses[data.definitionIndex]
         && data.locked == chunk.locks[data.definitionIndex]
         && data.scheduledDate == chunk.scheduledDates[data.definitionIndex]
@@ -462,11 +462,19 @@ service cloud.firestore {
         && data.ordinal is int && data.ordinal >= 1 && data.ordinal <= 100
         && data.status in ['unscheduled', 'scheduled', 'completed', 'skipped']
         && data.locked is bool
-        && (data.scheduledDate == null
-          || (data.scheduledDate is string && data.scheduledDate.size() == 10))
-        && (data.startMin == null
-          || (data.startMin is int && data.startMin >= 0 && data.startMin < 1440))
         && data.durationMin is int && data.durationMin >= 10 && data.durationMin <= 1440
+        && (
+          (data.scheduledDate == null && data.startMin == null)
+          || (
+            data.scheduledDate is string
+            && data.scheduledDate.matches('^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$')
+            && data.startMin is int && data.startMin >= 0 && data.startMin < 1440
+            && data.startMin + data.durationMin <= 1440
+          )
+        )
+        && (data.status != 'scheduled' || data.scheduledDate != null)
+        && (data.status != 'unscheduled' || data.scheduledDate == null)
+        && (!data.locked || data.status == 'scheduled')
         && data.activeRevisionId is string && data.activeRevisionId.size() <= 32
         && data.definitionChunkId is string && data.definitionChunkId.size() <= 16
         && data.definitionIndex is int
@@ -489,12 +497,50 @@ service cloud.firestore {
         && data.celebrated is list && data.celebrated.size() <= 100
         && data.updatedAt is timestamp;
     }
+    function isIsoDate(value) {
+      return value is string
+        && value.matches('^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$');
+    }
     function validSettings(data) {
       return data.keys().hasAll(['weekTarget', 'updatedAt'])
-        && data.keys().hasOnly(['weekTarget', 'activePlanId', 'updatedAt'])
+        && data.keys().hasOnly([
+          'weekTarget', 'activePlanId', 'planner', 'plannerVersion', 'updatedAt'
+        ])
         && data.weekTarget is int && data.weekTarget >= 10 && data.weekTarget <= 10000
         && (!('activePlanId' in data)
           || (data.activePlanId is string && data.activePlanId.size() <= 128))
+        && (!('plannerVersion' in data)
+          || (data.plannerVersion is int
+            && data.plannerVersion >= 0 && data.plannerVersion <= 1000000))
+        && (!('planner' in data) || (
+          data.planner is map
+          && data.planner.keys().hasAll([
+            'startDate', 'deadline', 'availableDays', 'startMin', 'endMin',
+            'dailyCapMinutes', 'weeklyCapMinutes'
+          ])
+          && data.planner.keys().hasOnly([
+            'startDate', 'deadline', 'availableDays', 'startMin', 'endMin',
+            'dailyCapMinutes', 'weeklyCapMinutes'
+          ])
+          && isIsoDate(data.planner.startDate)
+          && isIsoDate(data.planner.deadline)
+          && data.planner.deadline >= data.planner.startDate
+          && data.planner.availableDays is list
+          && data.planner.availableDays.size() > 0
+          && data.planner.availableDays.size() <= 7
+          && data.planner.availableDays.toSet().size() == data.planner.availableDays.size()
+          && data.planner.availableDays.toSet().hasOnly([0, 1, 2, 3, 4, 5, 6].toSet())
+          && data.planner.startMin is int
+          && data.planner.startMin >= 0 && data.planner.startMin <= 1430
+          && data.planner.endMin is int
+          && data.planner.endMin > data.planner.startMin && data.planner.endMin <= 1440
+          && data.planner.dailyCapMinutes is int
+          && data.planner.dailyCapMinutes >= 10
+          && data.planner.dailyCapMinutes <= data.planner.endMin - data.planner.startMin
+          && data.planner.weeklyCapMinutes is int
+          && data.planner.weeklyCapMinutes >= data.planner.dailyCapMinutes
+          && data.planner.weeklyCapMinutes <= 10080
+        ))
         && data.updatedAt is timestamp;
     }
 
@@ -579,10 +625,10 @@ service cloud.firestore {
           allow read: if canReadPrivate(uid);
           allow create: if isOwner(uid)
             && validTask(taskId, request.resource.data)
-            && taskMatchesActiveRevision(uid, planId, taskId, request.resource.data);
+            && taskMatchesActiveRevision(uid, planId, request.resource.data);
           allow update: if isOwner(uid)
             && validTask(taskId, request.resource.data)
-            && taskMatchesActiveRevision(uid, planId, taskId, request.resource.data)
+            && taskMatchesActiveRevision(uid, planId, request.resource.data)
             && request.resource.data.taskId == resource.data.taskId
             && request.resource.data.templateTaskId == resource.data.templateTaskId
             && request.resource.data.firstRevisionId == resource.data.firstRevisionId
@@ -594,10 +640,10 @@ service cloud.firestore {
           allow read: if canReadPrivate(uid);
           allow create: if isOwner(uid)
             && validSession(sessionId, request.resource.data)
-            && newSessionMatchesActiveRevision(uid, planId, sessionId, request.resource.data);
+            && newSessionMatchesActiveRevision(uid, planId, request.resource.data);
           allow update: if isOwner(uid)
             && validSession(sessionId, request.resource.data)
-            && sessionMatchesActiveRevision(uid, planId, sessionId, request.resource.data)
+            && sessionMatchesActiveRevision(uid, planId, request.resource.data)
             && request.resource.data.sessionId == resource.data.sessionId
             && request.resource.data.taskId == resource.data.taskId
             && request.resource.data.ordinal == resource.data.ordinal

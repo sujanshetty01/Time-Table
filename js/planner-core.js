@@ -273,6 +273,534 @@
     };
   }
 
+  function parseDateKey(value) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return null;
+    const [year, month, day] = value.split("-").map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return date.getUTCFullYear() === year &&
+      date.getUTCMonth() === month - 1 &&
+      date.getUTCDate() === day
+      ? date
+      : null;
+  }
+
+  function dateKey(date) {
+    return date.toISOString().slice(0, 10);
+  }
+
+  function addDays(value, amount) {
+    const date = parseDateKey(value);
+    date.setUTCDate(date.getUTCDate() + amount);
+    return dateKey(date);
+  }
+
+  function mondayKey(value) {
+    const date = parseDateKey(value);
+    const offset = (date.getUTCDay() + 6) % 7;
+    date.setUTCDate(date.getUTCDate() - offset);
+    return dateKey(date);
+  }
+
+  function normalizePlannerPreferences(preferences, today) {
+    const source = preferences || {};
+    const startDate = parseDateKey(source.startDate) ? source.startDate : today;
+    const fallbackDeadline = addDays(startDate, 83);
+    const deadline = parseDateKey(source.deadline)
+      ? source.deadline
+      : fallbackDeadline;
+    if (deadline < startDate) {
+      throw new RangeError(
+        "The planning deadline must be on or after the start date.",
+      );
+    }
+    const availableDays = [
+      ...new Set(
+        (Array.isArray(source.availableDays)
+          ? source.availableDays
+          : [1, 2, 3, 4, 5]
+        )
+          .map(Number)
+          .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6),
+      ),
+    ].sort();
+    const startValue = Number(source.startMin);
+    const endValue = Number(source.endMin);
+    const dailyCapValue = Number(source.dailyCapMinutes);
+    const weeklyCapValue = Number(source.weeklyCapMinutes);
+    const startMin = Math.max(
+      0,
+      Math.min(1430, Number.isFinite(startValue) ? startValue : 720),
+    );
+    const endMin = Math.max(
+      startMin + 10,
+      Math.min(1440, Number.isFinite(endValue) ? endValue : 900),
+    );
+    const dailyCapMinutes = Math.max(
+      10,
+      Math.min(
+        endMin - startMin,
+        Number.isFinite(dailyCapValue) ? dailyCapValue : 180,
+      ),
+    );
+    const weeklyCapMinutes = Math.max(
+      dailyCapMinutes,
+      Math.min(10080, Number.isFinite(weeklyCapValue) ? weeklyCapValue : 720),
+    );
+    return {
+      startDate,
+      deadline,
+      availableDays,
+      startMin,
+      endMin,
+      dailyCapMinutes,
+      weeklyCapMinutes,
+    };
+  }
+
+  function planConstraintSchedule({
+    tasks,
+    sessions,
+    preferences,
+    completedTaskIds = [],
+    today = dateKey(new Date()),
+  }) {
+    if (!parseDateKey(today))
+      throw new TypeError("A valid planning date is required.");
+    const prefs = normalizePlannerPreferences(preferences, today);
+    const orderedTasks = Array.isArray(tasks)
+      ? [...tasks].sort((a, b) => a.order - b.order)
+      : [];
+    validateDependencyGraph(orderedTasks);
+    const taskById = new Map(orderedTasks.map((task) => [task.taskId, task]));
+    const visitedTasks = new Set();
+    const taskList = [];
+    function appendTask(task) {
+      if (visitedTasks.has(task.taskId)) return;
+      (task.dependencyIds || []).forEach((dependencyId) =>
+        appendTask(taskById.get(dependencyId)),
+      );
+      visitedTasks.add(task.taskId);
+      taskList.push(task);
+    }
+    orderedTasks.forEach(appendTask);
+    const sessionList = Array.isArray(sessions) ? sessions : [];
+    const sessionByTask = new Map(
+      sessionList.map((session) => [session.taskId, session]),
+    );
+    const completed = new Set(completedTaskIds);
+    const reservations = new Map();
+    const weeklyMinutes = new Map();
+    const scheduledByTask = new Map();
+    const planned = [];
+    const conflicts = [];
+    const recovery = [];
+
+    function reserve(session) {
+      const items = reservations.get(session.scheduledDate) || [];
+      items.push({
+        startMin: session.startMin,
+        endMin: session.startMin + session.durationMin,
+        sessionId: session.sessionId,
+      });
+      items.sort((left, right) => left.startMin - right.startMin);
+      reservations.set(session.scheduledDate, items);
+      const week = mondayKey(session.scheduledDate);
+      weeklyMinutes.set(
+        week,
+        (weeklyMinutes.get(week) || 0) + session.durationMin,
+      );
+      scheduledByTask.set(session.taskId, session);
+    }
+
+    function totalForDate(value) {
+      return (reservations.get(value) || []).reduce(
+        (total, item) => total + item.endMin - item.startMin,
+        0,
+      );
+    }
+
+    function availableStart(value, durationMin, minimumStart) {
+      if (!prefs.availableDays.includes(parseDateKey(value).getUTCDay()))
+        return null;
+      if (totalForDate(value) + durationMin > prefs.dailyCapMinutes)
+        return null;
+      if (
+        (weeklyMinutes.get(mondayKey(value)) || 0) + durationMin >
+        prefs.weeklyCapMinutes
+      ) {
+        return null;
+      }
+      const items = reservations.get(value) || [];
+      let candidate = Math.max(prefs.startMin, minimumStart || prefs.startMin);
+      for (const item of items) {
+        if (candidate + durationMin <= item.startMin) break;
+        if (candidate < item.endMin) candidate = item.endMin;
+      }
+      return candidate + durationMin <= prefs.endMin ? candidate : null;
+    }
+
+    sessionList
+      .filter(
+        (session) =>
+          session.locked &&
+          !completed.has(session.taskId) &&
+          session.status !== "completed",
+      )
+      .forEach((session) => {
+        const validDate = parseDateKey(session.scheduledDate);
+        const validTime =
+          Number.isInteger(session.startMin) &&
+          Number.isInteger(session.durationMin) &&
+          session.durationMin >= 10;
+        if (!validDate || !validTime) {
+          conflicts.push({
+            taskId: session.taskId,
+            sessionId: session.sessionId,
+            code: "locked-without-slot",
+            reason: "This session is locked but has no valid date and time.",
+          });
+          return;
+        }
+        const locked = {
+          ...session,
+          status: "scheduled",
+          explanation: "Kept here because you locked this session.",
+        };
+        const endMin = locked.startMin + locked.durationMin;
+        const overlaps = (reservations.get(locked.scheduledDate) || []).some(
+          (item) => locked.startMin < item.endMin && endMin > item.startMin,
+        );
+        if (!prefs.availableDays.includes(validDate.getUTCDay())) {
+          conflicts.push({
+            taskId: session.taskId,
+            sessionId: session.sessionId,
+            code: "locked-rest-day",
+            reason: "This session is locked on a day marked unavailable.",
+          });
+        }
+        if (locked.startMin < prefs.startMin || endMin > prefs.endMin) {
+          conflicts.push({
+            taskId: session.taskId,
+            sessionId: session.sessionId,
+            code: "locked-outside-hours",
+            reason: "This session is locked outside your available hours.",
+          });
+        }
+        if (overlaps) {
+          conflicts.push({
+            taskId: session.taskId,
+            sessionId: session.sessionId,
+            code: "locked-overlap",
+            reason: "This locked session overlaps another locked session.",
+          });
+        }
+        reserve(locked);
+        planned.push(locked);
+        if (totalForDate(locked.scheduledDate) > prefs.dailyCapMinutes) {
+          conflicts.push({
+            taskId: session.taskId,
+            sessionId: session.sessionId,
+            code: "locked-daily-cap",
+            reason: "Locked sessions exceed the daily workload cap.",
+          });
+        }
+        if (
+          (weeklyMinutes.get(mondayKey(locked.scheduledDate)) || 0) >
+          prefs.weeklyCapMinutes
+        ) {
+          conflicts.push({
+            taskId: session.taskId,
+            sessionId: session.sessionId,
+            code: "locked-weekly-cap",
+            reason: "Locked sessions exceed the weekly workload cap.",
+          });
+        }
+        if (
+          session.scheduledDate < prefs.startDate ||
+          session.scheduledDate > prefs.deadline
+        ) {
+          conflicts.push({
+            taskId: session.taskId,
+            sessionId: session.sessionId,
+            code: "locked-outside-window",
+            reason: "A locked session falls outside the planning window.",
+          });
+        }
+      });
+
+    taskList.forEach((task) => {
+      const session = sessionByTask.get(task.taskId);
+      if (session?.status === "skipped") {
+        planned.push({
+          ...session,
+          locked: false,
+          scheduledDate: null,
+          startMin: null,
+          explanation: "Skipped by you and excluded from this schedule.",
+        });
+        return;
+      }
+      if (
+        !session ||
+        completed.has(task.taskId) ||
+        session.status === "completed" ||
+        (session.locked && scheduledByTask.has(task.taskId))
+      ) {
+        return;
+      }
+      if (session.locked) return;
+      const blockedDependency = (task.dependencyIds || []).find(
+        (dependencyId) =>
+          !completed.has(dependencyId) && !scheduledByTask.has(dependencyId),
+      );
+      if (blockedDependency) {
+        conflicts.push({
+          taskId: task.taskId,
+          sessionId: session.sessionId,
+          code: "dependency-unavailable",
+          reason: `Cannot schedule until ${taskById.get(blockedDependency)?.title || blockedDependency} has a slot.`,
+        });
+        planned.push({
+          ...session,
+          status: "unscheduled",
+          scheduledDate: null,
+          startMin: null,
+          explanation: "Waiting for a prerequisite session to be scheduled.",
+        });
+        return;
+      }
+      const durationMin = Math.max(
+        10,
+        Number(session.durationMin) || task.estimatedMinutes,
+      );
+      if (
+        durationMin > prefs.dailyCapMinutes ||
+        durationMin > prefs.endMin - prefs.startMin
+      ) {
+        conflicts.push({
+          taskId: task.taskId,
+          sessionId: session.sessionId,
+          code: "session-exceeds-cap",
+          reason: `${durationMin} minutes exceeds the available daily workload window.`,
+        });
+        planned.push({
+          ...session,
+          status: "unscheduled",
+          scheduledDate: null,
+          startMin: null,
+          explanation: "Increase the daily cap or shorten this session.",
+        });
+        return;
+      }
+      const dependencies = (task.dependencyIds || [])
+        .map((dependencyId) => scheduledByTask.get(dependencyId))
+        .filter(Boolean);
+      const dependency = dependencies.reduce((latest, current) => {
+        if (!latest || current.scheduledDate > latest.scheduledDate) {
+          return current;
+        }
+        if (
+          current.scheduledDate === latest.scheduledDate &&
+          current.startMin + current.durationMin >
+            latest.startMin + latest.durationMin
+        ) {
+          return current;
+        }
+        return latest;
+      }, null);
+      let candidateDate = [prefs.startDate, today, dependency?.scheduledDate]
+        .filter(Boolean)
+        .sort()
+        .at(-1);
+      let startMin = null;
+      let attempts = 0;
+      const searchLimitDays = 7 * (sessionList.length + 1);
+      while (candidateDate <= prefs.deadline && attempts <= searchLimitDays) {
+        const minimumStart =
+          dependency && dependency.scheduledDate === candidateDate
+            ? dependency.startMin + dependency.durationMin
+            : prefs.startMin;
+        startMin = availableStart(candidateDate, durationMin, minimumStart);
+        if (startMin !== null) break;
+        candidateDate = addDays(candidateDate, 1);
+        attempts += 1;
+      }
+      if (startMin === null || candidateDate > prefs.deadline) {
+        conflicts.push({
+          taskId: task.taskId,
+          sessionId: session.sessionId,
+          code: "deadline-capacity",
+          reason: "No available capacity remains before the deadline.",
+        });
+        planned.push({
+          ...session,
+          status: "unscheduled",
+          scheduledDate: null,
+          startMin: null,
+          explanation:
+            "Add an available day, raise a workload cap, or move the deadline.",
+        });
+        return;
+      }
+      const wasMissed =
+        parseDateKey(session.scheduledDate) &&
+        session.scheduledDate < today &&
+        session.status !== "completed";
+      const scheduled = {
+        ...session,
+        status: "scheduled",
+        scheduledDate: candidateDate,
+        startMin,
+        durationMin,
+        explanation: wasMissed
+          ? `Recovered from ${session.scheduledDate} into the earliest available slot.`
+          : `Placed on an available day within your daily and weekly workload caps.`,
+      };
+      reserve(scheduled);
+      planned.push(scheduled);
+      if (wasMissed) {
+        recovery.push({
+          taskId: task.taskId,
+          sessionId: session.sessionId,
+          fromDate: session.scheduledDate,
+          toDate: candidateDate,
+          reason: scheduled.explanation,
+        });
+      }
+    });
+
+    planned
+      .filter((session) => session.locked && session.status === "scheduled")
+      .forEach((session) => {
+        const task = taskById.get(session.taskId);
+        (task?.dependencyIds || []).forEach((dependencyId) => {
+          if (completed.has(dependencyId)) return;
+          const dependency = scheduledByTask.get(dependencyId);
+          if (!dependency) {
+            conflicts.push({
+              taskId: session.taskId,
+              sessionId: session.sessionId,
+              code: "locked-dependency-missing",
+              reason:
+                "This locked session has a prerequisite without a scheduled slot.",
+            });
+            return;
+          }
+          const dependencyFinishesAfterStart =
+            dependency.scheduledDate > session.scheduledDate ||
+            (dependency.scheduledDate === session.scheduledDate &&
+              dependency.startMin + dependency.durationMin > session.startMin);
+          if (dependencyFinishesAfterStart) {
+            conflicts.push({
+              taskId: session.taskId,
+              sessionId: session.sessionId,
+              code: "locked-dependency-order",
+              reason:
+                "This locked session starts before its prerequisite finishes.",
+            });
+          }
+        });
+      });
+
+    return {
+      preferences: prefs,
+      sessions: planned,
+      conflicts,
+      recovery,
+      summary: {
+        scheduled: planned.filter((session) => session.status === "scheduled")
+          .length,
+        unscheduled: planned.filter(
+          (session) => session.status === "unscheduled",
+        ).length,
+        locked: planned.filter((session) => session.locked).length,
+        totalMinutes: planned
+          .filter((session) => session.status === "scheduled")
+          .reduce((total, session) => total + session.durationMin, 0),
+      },
+    };
+  }
+
+  function escapeIcs(value) {
+    return String(value || "")
+      .replace(/\\/g, "\\\\")
+      .replace(/\r\n|\r|\n/g, "\\n")
+      .replace(/,/g, "\\,")
+      .replace(/;/g, "\\;");
+  }
+
+  function foldIcsLine(line) {
+    const folded = [];
+    let segment = "";
+    let octets = 0;
+    for (const character of line) {
+      const characterOctets = new TextEncoder().encode(character).length;
+      if (segment && octets + characterOctets > 75) {
+        folded.push(segment);
+        segment = ` ${character}`;
+        octets = 1 + characterOctets;
+      } else {
+        segment += character;
+        octets += characterOctets;
+      }
+    }
+    folded.push(segment);
+    return folded.join("\r\n");
+  }
+
+  function icsTime(date, minutes) {
+    const dayOffset = Math.floor(minutes / 1440);
+    const normalizedMinutes = ((minutes % 1440) + 1440) % 1440;
+    const normalizedDate = addDays(date, dayOffset);
+    const hours = String(Math.floor(normalizedMinutes / 60)).padStart(2, "0");
+    const mins = String(normalizedMinutes % 60).padStart(2, "0");
+    return `${normalizedDate.replace(/-/g, "")}T${hours}${mins}00`;
+  }
+
+  function buildIcsCalendar({
+    sessions,
+    tasks,
+    calendarName = "PathPilot plan",
+    calendarId = calendarName,
+    generatedAt = new Date(),
+  }) {
+    const taskById = new Map((tasks || []).map((task) => [task.taskId, task]));
+    const stamp = generatedAt
+      .toISOString()
+      .replace(/[-:]/g, "")
+      .replace(/\.\d{3}/, "");
+    const uidNamespace = hashString(String(calendarId || calendarName));
+    const lines = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//PathPilot//Constraint Planner//EN",
+      "CALSCALE:GREGORIAN",
+      `X-WR-CALNAME:${escapeIcs(calendarName)}`,
+    ];
+    (sessions || [])
+      .filter(
+        (session) =>
+          session.status === "scheduled" &&
+          parseDateKey(session.scheduledDate) &&
+          Number.isInteger(session.startMin),
+      )
+      .forEach((session) => {
+        const task = taskById.get(session.taskId) || {};
+        lines.push(
+          "BEGIN:VEVENT",
+          `UID:${uidNamespace}-${escapeIcs(session.sessionId)}@pathpilot`,
+          `DTSTAMP:${stamp}`,
+          `DTSTART:${icsTime(session.scheduledDate, session.startMin)}`,
+          `DTEND:${icsTime(session.scheduledDate, session.startMin + session.durationMin)}`,
+          `SUMMARY:${escapeIcs(task.title || "Learning session")}`,
+          `DESCRIPTION:${escapeIcs(session.explanation || "Scheduled by PathPilot")}`,
+          "END:VEVENT",
+        );
+      });
+    lines.push("END:VCALENDAR");
+    return `${lines.map(foldIcsLine).join("\r\n")}\r\n`;
+  }
+
   function buildRevisionChunks(snapshot, revisionId) {
     const chunkSize = 8;
     const chunkCount = 9;
@@ -479,10 +1007,13 @@
   return {
     buildPlanSnapshot,
     buildSchedule,
+    buildIcsCalendar,
     computeProgress,
     createPlanRevision,
     createRollbackRevision,
     expandRevisionChunk,
+    normalizePlannerPreferences,
+    planConstraintSchedule,
     preserveSessionState,
     validateDependencyGraph,
   };
