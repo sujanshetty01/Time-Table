@@ -238,38 +238,8 @@ service cloud.firestore {
           && target.sessionIds == revision.sessionIds
           && target.chunkIds == revision.chunkIds);
     }
-    function activeRevisionMatches(uid, planId, data, previousRevisionId) {
-      let revision = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(data.activeRevisionId)).data;
-      let chunk0 = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(data.activeRevisionId)/chunks/chunk-000).data;
-      let chunk1 = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(data.activeRevisionId)/chunks/chunk-001).data;
-      let chunk2 = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(data.activeRevisionId)/chunks/chunk-002).data;
-      let chunk3 = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(data.activeRevisionId)/chunks/chunk-003).data;
-      let chunk4 = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(data.activeRevisionId)/chunks/chunk-004).data;
-      let chunk5 = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(data.activeRevisionId)/chunks/chunk-005).data;
-      let chunk6 = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(data.activeRevisionId)/chunks/chunk-006).data;
-      let chunk7 = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(data.activeRevisionId)/chunks/chunk-007).data;
-      let chunk8 = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(data.activeRevisionId)/chunks/chunk-008).data;
-      return revision.planId == planId
-        && revision.revisionId == data.activeRevisionId
-        && revision.revisionNumber == data.latestRevisionNumber
-        && revision.previousRevisionId == previousRevisionId
-        && revision.sourceHash == data.sourceHash
-        && chunkMetadataMatches(planId, revision, 'chunk-000', 0, chunk0)
-        && chunkMetadataMatches(planId, revision, 'chunk-001', 1, chunk1)
-        && chunkMetadataMatches(planId, revision, 'chunk-002', 2, chunk2)
-        && chunkMetadataMatches(planId, revision, 'chunk-003', 3, chunk3)
-        && chunkMetadataMatches(planId, revision, 'chunk-004', 4, chunk4)
-        && chunkMetadataMatches(planId, revision, 'chunk-005', 5, chunk5)
-        && chunkMetadataMatches(planId, revision, 'chunk-006', 6, chunk6)
-        && chunkMetadataMatches(planId, revision, 'chunk-007', 7, chunk7)
-        && chunkMetadataMatches(planId, revision, 'chunk-008', 8, chunk8);
-    }
-    function planActivatesRevision(uid, planId, revisionId, data) {
-      let plan = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)).data;
-      return plan.activeRevisionId == revisionId
-        && plan.latestRevisionNumber == data.revisionNumber
-        && plan.sourceHash == data.sourceHash;
-    }
+    // Cross-document transaction checks are intentionally excluded here.
+    // Firestore limits document-access calls across a batched plan creation.
     function validChunkEntry(data, index, revision) {
       let order = data.ordinal * 8 + index;
       return data.taskIds[index] is string
@@ -363,53 +333,31 @@ service cloud.firestore {
         && data.createdAt is timestamp;
     }
     function validRevisionChunk(uid, planId, revisionId, chunkId, data) {
-      let revision = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(revisionId)).data;
-      return revision.reason == 'rollback'
-        ? (data.revisionId == revisionId
-          && data.createdAt is timestamp
-          && chunkRestoresTarget(uid, planId, revision, chunkId, data))
-        : validNewRevisionChunk(planId, revisionId, chunkId, data, revision);
-    }
-    function taskMatchesActiveRevision(uid, planId, data) {
-      let plan = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)).data;
-      let revision = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(plan.activeRevisionId)).data;
-      let chunk = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(plan.activeRevisionId)/chunks/$(data.definitionChunkId)).data;
-      return data.activeRevisionId == plan.activeRevisionId
-        && data.definitionIndex >= 0 && data.definitionIndex < chunk.taskIds.size()
-        && chunk.revisionId == plan.activeRevisionId
-        && chunk.chunkId == data.definitionChunkId
-        && data.taskId == chunk.taskIds[data.definitionIndex]
-        && data.taskId == revision.taskIds[data.order]
-        && data.templateTaskId == chunk.templateTaskIds[data.definitionIndex]
-        && data.title == chunk.titles[data.definitionIndex]
-        && data.phaseId == chunk.phaseIds[data.definitionIndex]
-        && data.phaseTitle == chunk.phaseTitles[data.definitionIndex]
-        && data.order == chunk.ordinal * 8 + data.definitionIndex
-        && ((chunk.dependencyIds[data.definitionIndex] == null
-            && data.dependencyIds == [])
-          || data.dependencyIds == [chunk.dependencyIds[data.definitionIndex]])
-        && data.estimatedMinutes == chunk.estimatedMinutes[data.definitionIndex];
-    }
-    function sessionMatchesActiveRevision(uid, planId, data) {
-      let plan = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)).data;
-      let chunk = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(plan.activeRevisionId)/chunks/$(data.definitionChunkId)).data;
-      return data.activeRevisionId == plan.activeRevisionId
-        && data.definitionIndex >= 0 && data.definitionIndex < chunk.sessionIds.size()
-        && chunk.revisionId == plan.activeRevisionId
-        && chunk.chunkId == data.definitionChunkId
-        && data.sessionId == chunk.sessionIds[data.definitionIndex]
-        && data.taskId == chunk.taskIds[data.definitionIndex]
-        && data.ordinal == 1;
-    }
-    function newSessionMatchesActiveRevision(uid, planId, data) {
-      let plan = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)).data;
-      let chunk = getAfter(/databases/$(database)/documents/users/$(uid)/plans/$(planId)/revisions/$(plan.activeRevisionId)/chunks/$(data.definitionChunkId)).data;
-      return sessionMatchesActiveRevision(uid, planId, data)
-        && data.status == chunk.statuses[data.definitionIndex]
-        && data.locked == chunk.locks[data.definitionIndex]
-        && data.scheduledDate == chunk.scheduledDates[data.definitionIndex]
-        && data.startMin == chunk.startMinutes[data.definitionIndex]
-        && data.durationMin == chunk.durationMinutes[data.definitionIndex];
+      return data.keys().hasOnly([
+          'planId', 'revisionId', 'chunkId', 'ordinal', 'sourceHash',
+          'taskIds', 'templateTaskIds', 'titles', 'phaseIds', 'phaseTitles',
+          'dependencyIds', 'estimatedMinutes', 'sessionIds', 'statuses', 'locks',
+          'scheduledDates', 'startMinutes', 'durationMinutes', 'createdAt'
+        ])
+        && data.planId == planId
+        && data.revisionId == revisionId
+        && data.chunkId == chunkId
+        && data.ordinal is int && data.ordinal >= 0 && data.ordinal < 9
+        && data.sourceHash is string && data.sourceHash.size() > 0 && data.sourceHash.size() <= 64
+        && data.taskIds is list && data.taskIds.size() <= 8
+        && data.templateTaskIds is list && data.templateTaskIds.size() == data.taskIds.size()
+        && data.titles is list && data.titles.size() == data.taskIds.size() && !data.titles.hasAny([''])
+        && data.phaseIds is list && data.phaseIds.size() == data.taskIds.size()
+        && data.phaseTitles is list && data.phaseTitles.size() == data.taskIds.size()
+        && data.dependencyIds is list && data.dependencyIds.size() == data.taskIds.size()
+        && data.estimatedMinutes is list && data.estimatedMinutes.size() == data.taskIds.size()
+        && data.sessionIds is list && data.sessionIds.size() == data.taskIds.size()
+        && data.statuses is list && data.statuses.size() == data.taskIds.size()
+        && data.locks is list && data.locks.size() == data.taskIds.size()
+        && data.scheduledDates is list && data.scheduledDates.size() == data.taskIds.size()
+        && data.startMinutes is list && data.startMinutes.size() == data.taskIds.size()
+        && data.durationMinutes is list && data.durationMinutes.size() == data.taskIds.size()
+        && data.createdAt is timestamp;
     }
     function validTask(taskId, data) {
       return data.keys().hasAll([
@@ -622,11 +570,9 @@ service cloud.firestore {
         match /tasks/{taskId} {
           allow read: if canReadPrivate(uid);
           allow create: if isOwner(uid)
-            && validTask(taskId, request.resource.data)
-            && taskMatchesActiveRevision(uid, planId, request.resource.data);
+            && validTask(taskId, request.resource.data);
           allow update: if isOwner(uid)
             && validTask(taskId, request.resource.data)
-            && taskMatchesActiveRevision(uid, planId, request.resource.data)
             && request.resource.data.taskId == resource.data.taskId
             && request.resource.data.templateTaskId == resource.data.templateTaskId
             && request.resource.data.firstRevisionId == resource.data.firstRevisionId
@@ -637,11 +583,9 @@ service cloud.firestore {
         match /sessions/{sessionId} {
           allow read: if canReadPrivate(uid);
           allow create: if isOwner(uid)
-            && validSession(sessionId, request.resource.data)
-            && newSessionMatchesActiveRevision(uid, planId, request.resource.data);
+            && validSession(sessionId, request.resource.data);
           allow update: if isOwner(uid)
             && validSession(sessionId, request.resource.data)
-            && sessionMatchesActiveRevision(uid, planId, request.resource.data)
             && request.resource.data.sessionId == resource.data.sessionId
             && request.resource.data.taskId == resource.data.taskId
             && request.resource.data.ordinal == resource.data.ordinal
