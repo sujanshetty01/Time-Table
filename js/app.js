@@ -468,8 +468,11 @@
   }
 
   function rankFor(pct) {
-    let r = RANKS[0];
-    for (const item of RANKS) if (pct >= item.min) r = item;
+    const ranks = typeof ranksForRole === "function"
+      ? ranksForRole(profile && profile.careerGoalKey)
+      : RANKS;
+    let r = ranks[0];
+    for (const item of ranks) if (pct >= item.min) r = item;
     return r;
   }
 
