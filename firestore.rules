@@ -577,10 +577,12 @@ service cloud.firestore {
         allow read: if canReadPrivate(uid);
         allow create, update: if planId == 'active' && isOwner(uid)
           && validLegacyPlan(request.resource.data);
+        // Plan creation shares a transaction with revisions, chunks, tasks, and sessions.
+        // Validate the plan document here, but avoid cross-document getAfter checks:
+        // those checks exceed Firestore's authorization access budget for a full plan write.
         allow create: if planId != 'active' && isOwner(uid)
           && validPlan(planId, request.resource.data)
-          && request.resource.data.latestRevisionNumber == 1
-          && activeRevisionMatches(uid, planId, request.resource.data, null);
+          && request.resource.data.latestRevisionNumber == 1;
         allow update: if planId != 'active' && isOwner(uid)
           && validPlan(planId, request.resource.data)
           && request.resource.data.planId == resource.data.planId
@@ -590,20 +592,16 @@ service cloud.firestore {
           && request.resource.data.cloud == resource.data.cloud
           && request.resource.data.createdAt == resource.data.createdAt
           && request.resource.data.activeRevisionId != resource.data.activeRevisionId
-          && request.resource.data.latestRevisionNumber == resource.data.latestRevisionNumber + 1
-          && activeRevisionMatches(
-            uid,
-            planId,
-            request.resource.data,
-            resource.data.activeRevisionId
-          );
+          && request.resource.data.latestRevisionNumber == resource.data.latestRevisionNumber + 1;
         allow delete: if false;
 
         match /revisions/{revisionId} {
           allow read: if canReadPrivate(uid);
+          // The parent plan and this revision are written atomically. Schema validation
+          // is enforced here; referential checks stay off the write hot path to keep the
+          // complete plan transaction within Firestore's document-access limits.
           allow create: if isOwner(uid)
             && validRevision(planId, revisionId, request.resource.data)
-            && planActivatesRevision(uid, planId, revisionId, request.resource.data)
             && rollbackTargetMatches(uid, planId, request.resource.data);
           allow update, delete: if false;
 
