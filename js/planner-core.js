@@ -419,6 +419,28 @@
       );
     }
 
+    function plannerDateLabel(value) {
+      const date = parseDateKey(value);
+      const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      return `${weekdays[date.getUTCDay()]}, ${months[date.getUTCMonth()]} ${date.getUTCDate()}`;
+    }
+
+    function plannerTimeLabel(value) {
+      const hours = Math.floor(value / 60) % 24;
+      const minutes = value % 60;
+      return `${hours % 12 || 12}:${String(minutes).padStart(2, "0")} ${hours >= 12 ? "PM" : "AM"}`;
+    }
+
+    function placementExplanation(session, dependency) {
+      const endMin = session.startMin + session.durationMin;
+      const remaining = Math.max(0, prefs.dailyCapMinutes - totalForDate(session.scheduledDate));
+      const placement = dependency
+        ? "Scheduled after its prerequisite"
+        : "Earliest free slot";
+      return `${plannerDateLabel(session.scheduledDate)} · ${plannerTimeLabel(session.startMin)}–${plannerTimeLabel(endMin)}. ${placement} in your selected study window; ${remaining} min remain in that day's cap.`;
+    }
+
     function availableStart(value, durationMin, minimumStart) {
       if (!prefs.availableDays.includes(parseDateKey(value).getUTCDay()))
         return null;
@@ -652,11 +674,13 @@
         scheduledDate: candidateDate,
         startMin,
         durationMin,
-        explanation: wasMissed
-          ? `Recovered from ${session.scheduledDate} into the earliest available slot.`
-          : `Placed on an available day within your daily and weekly workload caps.`,
+        explanation: "",
       };
       reserve(scheduled);
+      const placement = placementExplanation(scheduled, dependency);
+      scheduled.explanation = wasMissed
+        ? `Recovered from ${session.scheduledDate}. ${placement}`
+        : placement;
       planned.push(scheduled);
       if (wasMissed) {
         recovery.push({
