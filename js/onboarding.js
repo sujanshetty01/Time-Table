@@ -108,14 +108,21 @@
   }
 
   function stepGoal() {
+    const isCloudPath = draft.careerGoalKey === "cloud-architect";
+    const cloudField = isCloudPath
+      ? field("Preferred cloud", select("f_cloud", CLOUDS, draft.cloud))
+      : "";
+    const certificationPlaceholder = isCloudPath
+      ? "e.g. AZ-305 / AWS SA Pro"
+      : "e.g. DP-203, Databricks, or a role-relevant certification";
     return `
       ${field("Career goal", `<div class="ob-goals" id="f_goals">${GOALS.map((g) =>
         `<button type="button" class="ob-goal ${g.key === draft.careerGoalKey ? "sel" : ""}" data-key="${g.key}" data-label="${g.label}"><span>${g.icon}</span>${g.label}</button>`).join("")}</div>`)}
       <div class="ob-row">
-        ${field("Preferred cloud", select("f_cloud", CLOUDS, draft.cloud))}
+        ${cloudField}
         ${field("Target timeline (months)", `<input id="f_timeline" type="number" min="1" max="36" class="ob-input" value="${draft.timelineMonths}" />`)}
       </div>
-      ${field("Target certification", `<input id="f_cert" class="ob-input" value="${esc(draft.targetCert)}" placeholder="e.g. AZ-305 / AWS SA Pro" />`)}
+      ${field("Target certification", `<input id="f_cert" class="ob-input" value="${esc(draft.targetCert)}" placeholder="${certificationPlaceholder}" />`)}
       ${field("Areas of interest", `<input id="f_interests" class="ob-input" value="${esc((draft.interests || []).join(", "))}" placeholder="e.g. networking, security, Kubernetes" />`, "Comma-separated")}`;
   }
 
@@ -144,7 +151,7 @@
     return `
       <div class="ob-review">
         <div class="ob-rev-row"><span>Name</span><b>${esc(g.fullName) || "—"}</b></div>
-        <div class="ob-rev-row"><span>Goal</span><b>${esc(g.careerGoalLabel)} · ${esc(g.cloud)}</b></div>
+        <div class="ob-rev-row"><span>Goal</span><b>${esc(g.careerGoalLabel)}${g.careerGoalKey === "cloud-architect" ? ` · ${esc(g.cloud)}` : ""}</b></div>
         <div class="ob-rev-row"><span>Level · Experience</span><b>${esc(g.skillLevel)} · ${g.yearsExp} yrs</b></div>
         <div class="ob-rev-row"><span>Learning window</span><b>${win}</b></div>
         <div class="ob-rev-row"><span>After-work</span><b>${g.afterHours} h from ${toTime(g.afterStartMin)}</b></div>
@@ -168,7 +175,11 @@
       draft.yearsExp = parseInt(v("f_exp")) || 0;
       draft.skillLevel = v("f_level") || "Beginner";
     } else if (step === 1) {
-      draft.cloud = v("f_cloud") || "Azure";
+      // Cloud selection is meaningful only for the Cloud Architect template.
+      // Non-cloud templates retain a safe internal default for legacy schema compatibility.
+      draft.cloud = draft.careerGoalKey === "cloud-architect"
+        ? v("f_cloud") || "Azure"
+        : "Azure";
       draft.timelineMonths = parseInt(v("f_timeline")) || 12;
       draft.targetCert = v("f_cert") || "";
       draft.interests = (v("f_interests") || "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -187,10 +198,12 @@
     const goals = document.getElementById("f_goals");
     if (goals) goals.querySelectorAll(".ob-goal").forEach((b) =>
       b.addEventListener("click", () => {
-        goals.querySelectorAll(".ob-goal").forEach((x) => x.classList.remove("sel"));
-        b.classList.add("sel");
+        captureStep();
         draft.careerGoalKey = b.dataset.key;
         draft.careerGoalLabel = b.dataset.label;
+        // Re-render immediately so cloud preference is visible only for Cloud Architect.
+        if (draft.careerGoalKey !== "cloud-architect") draft.cloud = "Azure";
+        render();
       }));
     // style chips
     const styles = document.getElementById("f_styles");
