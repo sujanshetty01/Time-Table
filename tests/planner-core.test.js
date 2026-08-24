@@ -390,10 +390,13 @@ describe("constraint planner", () => {
     );
     assert.equal(result.conflicts.length, 0);
     assert.equal(result.summary.totalMinutes, 135);
-    assert.ok(
-      result.sessions.every((session) =>
-        session.explanation.includes("workload caps"),
-      ),
+    assert.deepEqual(
+      result.sessions.map((session) => session.explanation),
+      [
+        "Mon, Sep 14 · 9:00 AM–9:45 AM. Earliest free slot in your selected study window; 45 min remain in that day's cap.",
+        "Mon, Sep 14 · 9:45 AM–10:30 AM. Scheduled after its prerequisite in your selected study window; 0 min remain in that day's cap.",
+        "Tue, Sep 15 · 9:00 AM–9:45 AM. Scheduled after its prerequisite in your selected study window; 45 min remain in that day's cap.",
+      ],
     );
   });
 
